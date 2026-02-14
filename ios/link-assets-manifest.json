@@ -1,0 +1,29 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "src/assets/fonts/Nunitosans.ttf",
+      "sha1": "8c01360cd531b3c1988d314db01656c8ef45207c"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-ExtraLight.ttf",
+      "sha1": "85af6582a7e6155917c605f9d3fed68c02b23b06"
+    },
+    {
+      "path": "src/assets/fonts/Interfont.ttf",
+      "sha1": "ee5c2e22ffeddefc433c9aa4c76779bb73a5c682"
+    },
+    {
+      "path": "src/assets/fonts/BodoniModa-Italic-VariableFont_opsz,wght.ttf",
+      "sha1": "cd5a7c1f8be641f61ee50ed0c10496b5cb2fa7df"
+    },
+    {
+      "path": "src/assets/fonts/TenorSans-Regular.ttf",
+      "sha1": "9e8b5d8350c5310fed548e56baab4900f651ad6d"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Thin.ttf",
+      "sha1": "09ba4dcd5509c8085bf88c665dcc51cbdfced27b"
+    }
+  ]
+}
