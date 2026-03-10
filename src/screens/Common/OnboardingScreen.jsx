@@ -11,18 +11,27 @@ const OnboardingScreen = ({ onComplete }) => {
   const [index, setIndex] = useState(0);
   
   // Fetch featured images using React Query
-  const { data: featuredImagesData, isLoading } = useQuery({
+  const { data: featuredImagesData, isLoading, error } = useQuery({
     queryKey: ['featuredImages'],
     queryFn: () => getFeaturedImages({ page: 'lock' }),
+    retry: 2,
+    onSuccess: (data) => {
+      console.log('✅ Featured images data received:', data);
+      console.log('✅ Data type:', typeof data);
+      console.log('✅ Is array:', Array.isArray(data));
+    },
+    onError: (err) => {
+      console.log('❌ Featured images query error:', err);
+    }
   });
 
   // Transform API data to match UI structure
-  const slides = featuredImagesData?.map((item, idx) => ({
+  const slides = Array.isArray(featuredImagesData) ? featuredImagesData.map((item, idx) => ({
     id: item._id,
     title: item.heading,
     subtitle: item.subHeading,
     image: { uri: item.url },
-  })) || [];
+  })) : [];
 
   const slide = slides[index];
   
@@ -46,13 +55,33 @@ const OnboardingScreen = ({ onComplete }) => {
     ]).start();
   }, []);
 
-  // Show loading state while fetching data
+  // Show skeleton UI while fetching data
   if (isLoading || slides.length === 0) {
     return (
       <View style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading...</Text>
+        {/* Skeleton Title and Subtitle */}
+        <View style={styles.textContainer}>
+          <View style={styles.skeletonTitle} />
+          <View style={styles.skeletonSubtitle} />
         </View>
+
+        {/* Skeleton Image */}
+        <View style={styles.skeletonImageWrap}>
+          <View style={styles.skeletonImage} />
+        </View>
+
+        {/* Skeleton Dots */}
+        <View style={styles.dots}>
+          <View style={[styles.dot, styles.skeletonDot]} />
+          <View style={[styles.dot, styles.skeletonDot]} />
+          <View style={[styles.dot, styles.skeletonDot]} />
+        </View>
+
+        {/* Skeleton Button */}
+        <View style={styles.skeletonButton} />
+
+        {/* Skeleton Skip Button */}
+        <View style={styles.skeletonSkipButton} />
       </View>
     );
   }
@@ -266,15 +295,51 @@ const styles = StyleSheet.create({
     fontSize: width * 0.034,
     fontWeight: '400',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  // Skeleton styles
+  skeletonTitle: {
+    width: width * 0.78,
+    height: width * 0.07,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+    marginBottom: height * 0.01,
   },
-  loadingText: {
-    fontSize: 16,
-    color: '#666',
-    fontFamily: 'Nunitosans',
+  skeletonSubtitle: {
+    width: width * 0.88,
+    height: width * 0.05,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+  },
+  skeletonImageWrap: {
+    top: -13,
+    width: '100%',
+    height: height * 0.62,
+    marginBottom: height * 0.03,
+  },
+  skeletonImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#e0e0e0',
+    borderRadius: 0,
+  },
+  skeletonDot: {
+    backgroundColor: '#e0e0e0',
+  },
+  skeletonButton: {
+    top: -35,
+    backgroundColor: '#e0e0e0',
+    paddingVertical: height * 0.022,
+    borderRadius: 0,
+    marginBottom: height * 0.02,
+    alignItems: 'center',
+    height: height * 0.022 * 2 + 20,
+  },
+  skeletonSkipButton: {
+    alignSelf: 'center',
+    padding: 10,
+    width: 40,
+    height: 20,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
   },
 });
 

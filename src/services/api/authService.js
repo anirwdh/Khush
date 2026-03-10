@@ -73,7 +73,8 @@ export const authService = {
       
       return createApiSuccessResponse(response.data, 'OTP sent successfully');
     } catch (error) {
-      return createApiErrorResponse(error);
+      // Throw the error directly so LoginScreen can handle it properly
+      throw error;
     }
   },
 

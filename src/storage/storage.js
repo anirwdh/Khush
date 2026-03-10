@@ -188,6 +188,70 @@ export const storageService = {
     }
   },
   
+  // Address sync management
+  setAddressSyncedId: async (addressId) => {
+    if (isStorageAvailable) {
+      try {
+        await storage.setItem('khush_address_synced', addressId);
+        console.log('✅ Address sync ID stored:', addressId);
+      } catch (error) {
+        console.error('❌ Error storing address sync ID:', error);
+      }
+    } else {
+      memoryStorage.set('khush_address_synced', addressId);
+    }
+  },
+  
+  getAddressSyncedId: async () => {
+    if (isStorageAvailable) {
+      try {
+        const addressId = await storage.getItem('khush_address_synced');
+        console.log('🔍 Address sync ID:', addressId);
+        return addressId;
+      } catch (error) {
+        console.error('❌ Error getting address sync ID:', error);
+        return null;
+      }
+    } else {
+      return memoryStorage.getString('khush_address_synced');
+    }
+  },
+  
+  clearAddressSyncedId: async () => {
+    if (isStorageAvailable) {
+      try {
+        await storage.removeItem('khush_address_synced');
+        console.log('✅ Address sync ID cleared');
+      } catch (error) {
+        console.error('❌ Error clearing address sync ID:', error);
+      }
+    } else {
+      memoryStorage.delete('khush_address_synced');
+    }
+  },
+
+  // Legacy methods for backward compatibility
+  setAddressSynced: async (synced) => {
+    if (synced) {
+      console.warn('⚠️ setAddressSynced is deprecated, use setAddressSyncedId instead');
+    }
+  },
+  
+  isAddressSynced: async () => {
+    try {
+      const addressId = await this.getAddressSyncedId();
+      return !!addressId;
+    } catch (error) {
+      console.error('❌ Error checking address sync status:', error);
+      return false;
+    }
+  },
+  
+  clearAddressSynced: async () => {
+    console.warn('⚠️ clearAddressSynced is deprecated, use clearAddressSyncedId instead');
+    await this.clearAddressSyncedId();
+  },
+
   // Debug method
   debugStorage: async () => {
     if (isStorageAvailable) {

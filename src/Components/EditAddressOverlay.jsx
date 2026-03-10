@@ -8,11 +8,12 @@ const EditAddressOverlay = ({ visible, onClose, onSave, address }) => {
   const scrollRef = useRef(null);
   const [formData, setFormData] = useState({
     name: address?.name || '',
-    address: address?.address || '',
+    address: address?.street || address?.addressLine || '',
     city: address?.city || '',
     state: address?.state || '',
     pinCode: address?.pinCode || '',
-    phone: address?.phone || '',
+    phone: address?.phoneNumber || address?.phone || '',
+    addressType: address?.addressType || 'HOME', // Add address type
   });
 
   const handleInputChange = useCallback((field, value) => {
@@ -23,9 +24,21 @@ const EditAddressOverlay = ({ visible, onClose, onSave, address }) => {
   }, []);
 
   const handleSave = useCallback(() => {
-    onSave(formData);
-    onClose();
-  }, [formData, onSave, onClose]);
+    // Format data for API (match create address structure)
+    const apiData = {
+      name: formData.name.trim(),
+      phoneNumber: formData.phone.trim(),
+      countryCode: '+91',
+      addressLine: formData.address.trim(),
+      city: formData.city.trim(),
+      state: formData.state.trim(),
+      pinCode: formData.pinCode.trim(),
+      country: 'India',
+      addressType: formData.addressType,
+    };
+    
+    onSave(apiData);
+  }, [formData, onSave]);
 
   return (
     <Modal
@@ -115,7 +128,7 @@ const EditAddressOverlay = ({ visible, onClose, onSave, address }) => {
                 placeholder="Pin code"
                 placeholderTextColor="#999"
                 keyboardType="numeric"
-                maxLength={5}
+                maxLength={6}
               />
             </View>
           </View>
@@ -132,6 +145,29 @@ const EditAddressOverlay = ({ visible, onClose, onSave, address }) => {
               onFocus={() => {
                 scrollRef.current?.scrollToEnd({ animated: true });
               }}
+            />
+          </View>
+
+          {/* Country */}
+          <View style={styles.inputGroup}>
+            <TextInput
+              style={styles.input}
+              value="India"
+              editable={false}
+              placeholder="Country"
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          {/* Address Type */}
+          <View style={styles.inputGroup}>
+            <TextInput
+              style={styles.input}
+              value={formData.addressType}
+              onChangeText={(value) => handleInputChange('addressType', value)}
+              placeholder="Address Type (e.g., HOME, WORK, OTHER)"
+              placeholderTextColor="#999"
+              autoCapitalize="characters"
             />
           </View>
         </View>

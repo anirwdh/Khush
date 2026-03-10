@@ -1,76 +1,159 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Dimensions, Platform } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Dimensions, Platform, ActivityIndicator } from 'react-native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import BackIcon from '../../assets/Icons/BackIcon.jsx';
 import LikeIcon from '../../assets/Icons/LikeIcons.jsx';
+import WishListedLike from '../../assets/Icons/WishListedLike.jsx';
 import Rating from '../../assets/Icons/Rating.jsx';
+import { getItemsByCategory } from '../../services/itemsService';
+import { useWishlistSync } from '../../hooks/useWishlistSync';
+import { useAuthGuard } from '../../hooks/useAuthGuard';
 
 const { width, height } = Dimensions.get('window');
 
 const ProductListScreen = () => {
   const navigation = useNavigation();
+  const route = useRoute();
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
+  const [categoryName, setCategoryName] = useState('NEW ARRIVALS');
   const itemsPerPage = 14; // 7 rows × 2 columns
+  const [pincode, setPincode] = useState('201309'); // Default pincode
 
-  // Mock product data with same structure as HomeScreen
-  const allProducts = [
-    { id: '1', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹120', rating: '4.5', image: require('../../assets/Images/image.png') },
-    { id: '2', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹149', rating: '4.2', image: require('../../assets/Images/Image2.png') },
-    { id: '3', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹259', rating: '4.8', image: require('../../assets/Images/Image3.png') },
-    { id: '4', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹189', rating: '4.1', image: require('../../assets/Images/image.png') },
-    { id: '5', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹299', rating: '4.6', image: require('../../assets/Images/Image2.png') },
-    { id: '6', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹399', rating: '4.9', image: require('../../assets/Images/Image3.png') },
-    { id: '7', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹159', rating: '4.3', image: require('../../assets/Images/image.png') },
-    { id: '8', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹219', rating: '4.7', image: require('../../assets/Images/Image2.png') },
-    { id: '9', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹349', rating: '4.4', image: require('../../assets/Images/Image3.png') },
-    { id: '10', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹179', rating: '4.0', image: require('../../assets/Images/image.png') },
-    { id: '11', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹279', rating: '4.5', image: require('../../assets/Images/Image2.png') },
-      { id: '12', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹419', rating: '4.8', image: require('../../assets/Images/Image3.png') },
-      { id: '13', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹199', rating: '4.2', image: require('../../assets/Images/image.png') },
-    { id: '14', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹239', rating: '4.6', image: require('../../assets/Images/Image2.png') },
-    { id: '15', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹329', rating: '4.1', image: require('../../assets/Images/Image3.png') },
-    { id: '16', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹169', rating: '4.7', image: require('../../assets/Images/image.png') },
-    { id: '17', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹289', rating: '4.3', image: require('../../assets/Images/Image2.png') },
-      { id: '18', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹209', rating: '4.4', image: require('../../assets/Images/image.png') },
-    { id: '20', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹259', rating: '4.6', image: require('../../assets/Images/Image2.png') },
-    { id: '21', title: 'LAMEREI', subtitle: 'Recycle Boucle Knit Cardigan Pink', price: '₹349', rating: '4.8', image: require('../../assets/Images/Image3.png') },
-  ];
+  // Use global wishlist sync for real-time synchronization
+  const { requireAuth } = useAuthGuard();
+  const {
+    isWishlisted,
+    toggleWishlist,
+    pendingOperations,
+    wishlistIds
+  } = useWishlistSync();
+
+  // Get categoryId, categoryName, and sectionTitle from route params
+  const { categoryId, categoryName: routeCategoryName, sectionTitle } = route.params || {};
+
+  useEffect(() => {
+    if (routeCategoryName) {
+      setCategoryName(routeCategoryName.toUpperCase());
+    }
+  }, [routeCategoryName]);
+
+  // Format header text
+  const headerText = sectionTitle && categoryName 
+    ? `${sectionTitle.toUpperCase()} `
+    : categoryName || 'NEW ARRIVALS';
+
+  // Fetch products from API
+  const fetchProducts = useCallback(async () => {
+    if (!categoryId) {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Fetch all products with higher limit for "EXPLORE MORE" functionality
+      const response = await getItemsByCategory(categoryId, pincode, 1, 100);
+      if (response?.success && response?.data?.items) {
+        // Transform API response to match expected format
+        const transformedProducts = response.data.items.map(item => ({
+          id: item._id,
+          title: item.name || 'Product',
+          subtitle: item.shortDescription || 'Product description',
+          price: item.price ? `₹${item.price}` : '₹0',
+          rating: item.avgRating || 0,
+          image: item.thumbnail ? { uri: item.thumbnail } : require('../../assets/Images/image.png'),
+        }));
+        setProducts(transformedProducts);
+      }
+    } catch (error) {
+      console.error('Error fetching products:', error);
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [categoryId, pincode]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
 
   // Calculate current page products
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const currentProducts = allProducts.slice(startIndex, endIndex);
+  const currentProducts = products.slice(startIndex, endIndex);
 
   // Calculate total pages
-  const totalPages = Math.ceil(allProducts.length / itemsPerPage);
+  const totalPages = Math.ceil(products.length / itemsPerPage);
 
-  const renderProduct = ({ item, index }) => (
-    <TouchableOpacity 
-      style={styles.productItem}
-     onPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
-      activeOpacity={0.8}
-    >
-      <View style={styles.productImageContainer}>
-        <Image source={item.image} style={styles.productImage} resizeMode="cover" />
-        <TouchableOpacity style={styles.likeButton} activeOpacity={0.8}>
-          <LikeIcon width={34} height={34} />
-        </TouchableOpacity>
-      </View>
-      <View style={styles.productInfoContainer}>
-        <Text style={styles.productTitle}>{item.title}</Text>
-        <Text style={styles.productSubtitle} numberOfLines={1} ellipsizeMode="tail">{item.subtitle}</Text>
-        <View style={styles.priceContainer}>
-          <Text style={styles.productPrice}>{item.price}</Text>
+  // Handle wishlist toggle with auth guard and global sync
+  const handleToggleWishlist = useCallback(async (itemId) => {
+    // Determine current screen to redirect back to
+    const currentScreen = route.name;
+    const redirectParams = { itemId };
+    
+    // Use auth guard to check authentication and redirect if needed
+    const isAllowed = await requireAuth(
+      currentScreen, // Use current screen dynamically
+      redirectParams,
+      'wishlist' // Pending action
+    );
+    
+    if (!isAllowed) return;
+    
+    // Use global toggle function
+    toggleWishlist(itemId);
+  }, [requireAuth, toggleWishlist, route.name]);
+
+  // Memoized wishlist status to ensure proper re-renders
+  const getWishlistStatus = useCallback((itemId) => {
+    return isWishlisted(itemId);
+  }, [isWishlisted, wishlistIds, pendingOperations]);
+
+  const renderProduct = useCallback(({ item, index }) => {
+    const isLiked = getWishlistStatus(item.id);
+    
+    return (
+      <TouchableOpacity 
+        style={styles.productItem}
+        onPress={() => navigation.navigate('ProductDetail', { itemId: item.id })}
+        activeOpacity={0.8}
+      >
+        <View style={styles.productImageContainer}>
+          <Image source={item.image} style={styles.productImage} resizeMode="cover" />
+          <TouchableOpacity 
+            style={[
+              styles.likeButton,
+              pendingOperations.has(item.id) && styles.likeButtonDisabled
+            ]}
+            onPress={() => handleToggleWishlist(item.id)}
+            disabled={pendingOperations.has(item.id)}
+            activeOpacity={0.8}
+          >
+            {isLiked ? (
+              <WishListedLike width={34} height={34} />
+            ) : (
+              <LikeIcon width={34} height={34} />
+            )}
+          </TouchableOpacity>
         </View>
-        <View style={styles.ratingContainer}>
-          <View style={styles.starsContainer}>
-            <Rating width={14} height={14} />
+        <View style={styles.productInfoContainer}>
+          <Text style={styles.productTitle}>{item.title}</Text>
+          <Text style={styles.productSubtitle} numberOfLines={1} ellipsizeMode="tail">{item.subtitle}</Text>
+          <View style={styles.priceContainer}>
+            <Text style={styles.productPrice}>{item.price}</Text>
           </View>
-          <Text style={styles.ratingText}>{item.rating}</Text>
+          <View style={styles.ratingContainer}>
+            <View style={styles.starsContainer}>
+              <Rating width={14} height={14} />
+            </View>
+            <Text style={styles.ratingText}>{item.rating}</Text>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  }, [navigation, getWishlistStatus, handleToggleWishlist, pendingOperations]);
 
   const renderPaginationButton = (pageNumber) => (
     <TouchableOpacity
@@ -91,6 +174,49 @@ const ProductListScreen = () => {
     </TouchableOpacity>
   );
 
+  // Show loading state
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.8}
+          >
+            <BackIcon width={26} height={26} />
+          </TouchableOpacity>
+          <Text style={styles.detailsText}>{headerText}</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#000" />
+        </View>
+      </View>
+    );
+  }
+
+  // Show empty state when no categoryId
+  if (!categoryId) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.8}
+          >
+            <BackIcon width={26} height={26} />
+          </TouchableOpacity>
+          <Text style={styles.detailsText}>NEW ARRIVALS</Text>
+        </View>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No products found</Text>
+          <Text style={styles.emptySubText}>Try adjusting your filters or browse our new arrivals</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -103,7 +229,7 @@ const ProductListScreen = () => {
           <BackIcon width={26} height={26} />
         </TouchableOpacity>
         
-        <Text style={styles.detailsText}>NEW ARRIVALS</Text>
+        <Text style={styles.detailsText}>{headerText}</Text>
       </View>
 
       {/* Product Grid */}
@@ -115,10 +241,18 @@ const ProductListScreen = () => {
         contentContainerStyle={styles.productList}
         showsVerticalScrollIndicator={false}
         columnWrapperStyle={styles.row}
-        ListFooterComponent={
-          <View style={styles.paginationContainer}>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(renderPaginationButton)}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No products found</Text>
+            <Text style={styles.emptySubText}>Try adjusting your filters or browse our new arrivals</Text>
           </View>
+        }
+        ListFooterComponent={
+          currentProducts.length > 0 && totalPages > 1 ? (
+            <View style={styles.paginationContainer}>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(renderPaginationButton)}
+            </View>
+          ) : null
         }
       />
     </View>
@@ -179,6 +313,9 @@ const styles = StyleSheet.create({
     top: '80%',
     right: 3,
     padding: 4,
+  },
+  likeButtonDisabled: {
+    opacity: 0.6,
   },
   productInfoContainer: {
     marginTop: height * 0.01,
@@ -255,6 +392,29 @@ const styles = StyleSheet.create({
   },
   paginationButtonTextActive: {
     color: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyContainer: {
+    height: 200,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    fontFamily: Platform.OS === 'ios' ? 'Inter' : 'TenorSans-Regular',
+    marginBottom: 8,
+  },
+  emptySubText: {
+    fontSize: 14,
+    color: '#999',
+    fontFamily: Platform.OS === 'ios' ? 'Inter' : 'TenorSans-Regular',
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
 });
 

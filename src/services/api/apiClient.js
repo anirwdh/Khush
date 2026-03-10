@@ -25,16 +25,16 @@ console.log('Axios instance defaults:', {
 });
 
 apiClient.interceptors.request.use(
-  (config) => {
+  async (config) => {
     console.log('=== AXIOS REQUEST ===');
     console.log('Method:', config.method?.toUpperCase());
     console.log('URL:', config.baseURL + config.url);
     console.log('Headers:', config.headers);
-    console.log('Data:', config.data);
+    console.log('Data:', JSON.stringify(config.data, null, 2));
     console.log('Axios Request ID:', config.metadata?.requestId || Date.now());
     
     try {
-      const token = storageService.getToken();
+      const token = await storageService.getToken();
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
         console.log('Authorization header added:', `Bearer ${token.substring(0, 20)}...`);
@@ -52,6 +52,11 @@ apiClient.interceptors.request.use(
     } catch (error) {
       console.warn('Failed to get device ID:', error);
     }
+    
+    console.log('Final Request Headers:', config.headers);
+    console.log('Request Data:', config.data);
+    console.log('🚀 PRODUCTION API REQUEST END');
+    
     return config;
   },
   (error) => {
@@ -79,6 +84,16 @@ apiClient.interceptors.response.use(
     console.log('Error Data:', error.response?.data);
     console.log('Error Message:', error.message);
     console.log('Is Axios Error:', error.isAxiosError);
+    
+    // Log detailed validation errors
+    if (error.response?.status === 422) {
+      console.log('🔍 VALIDATION ERRORS:');
+      if (error.response?.data?.errors) {
+        error.response.data.errors.forEach((err, index) => {
+          console.log(`  ${index + 1}. Field: ${err.field || err.param || 'unknown'}, Message: ${err.message || err.msg || 'No message'}`);
+        });
+      }
+    }
     
     if (error.response?.status === 401) {
       try {

@@ -1,44 +1,124 @@
 import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Platform } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { Dimensions } from 'react-native';
 import Rating from '../../assets/Icons/Rating.jsx';
 import LikeIcon from '../../assets/Icons/LikeIcons.jsx';
+import WishListedLike from '../../assets/Icons/WishListedLike.jsx';
 import Forwardarrow from '../../assets/Icons/Forwardarrow.jsx';
 import HeadingArrow from '../../assets/Icons/HeadingArrow.jsx';
 import { getFontFamily } from '../../utils/fontLoader';
+import { useWishlistSync } from '../../hooks/useWishlistSync';
+import { useAuthGuard } from '../../hooks/useAuthGuard';
 
 const { width, height } = Dimensions.get('window');
 
 const HorizontalScrollSection = React.memo(({ section }) => {
   const navigation = useNavigation();
+  const route = useRoute();
 
-  const renderProductItem = useCallback(({ item }) => (
-    <TouchableOpacity 
-      style={styles.productItem}
-      onPress={() => navigation.navigate('ProductDetail', { productId: item.id })}
-      activeOpacity={0.8}
-    >
-      <View style={styles.productImageContainer}>
-        <Image source={item.image} style={styles.productImage} resizeMode="cover" />
-        <TouchableOpacity style={styles.likeButton} activeOpacity={0.8}>
-          <LikeIcon width={34} height={34} />
-        </TouchableOpacity>
-      </View>
-      <View style={styles.productInfoContainer}>
-        <Text style={styles.productTitle}>{item.title}</Text>
-        <View style={styles.priceContainer}>
-          <Text style={styles.productPrice}>{item.price}</Text>
+  // Transform section data to ensure consistent format with stock information
+  const transformedData = useMemo(() => {
+    if (section.data && Array.isArray(section.data)) {
+      return section.data.map(item => ({
+        id: item.id || item._id,
+        title: item.title || item.name || 'Product',
+        price: item.price,
+        rating: item.rating || item.avgRating || 0,
+        image: item.image,
+        inStock: item.inStock,
+        availableQuantity: item.availableQuantity
+      }));
+    }
+    return [];
+  }, [section.data]);
+
+  // Use global wishlist sync for real-time synchronization
+  const { requireAuth } = useAuthGuard();
+  const {
+    isWishlisted,
+    toggleWishlist,
+    pendingOperations,
+    wishlistIds
+  } = useWishlistSync();
+
+  // Handle wishlist toggle with auth guard and global sync
+  const handleToggleWishlist = useCallback(async (itemId) => {
+    // Determine current screen to redirect back to
+    const currentScreen = route.name;
+    const redirectParams = { itemId };
+    
+    // Use auth guard to check authentication and redirect if needed
+    const isAllowed = await requireAuth(
+      currentScreen, // Use current screen dynamically
+      redirectParams,
+      'wishlist' // Pending action
+    );
+    
+    if (!isAllowed) return;
+    
+    // Use global toggle function
+    toggleWishlist(itemId);
+  }, [requireAuth, toggleWishlist, route.name]);
+
+  // Memoized wishlist status to ensure proper re-renders
+  const getWishlistStatus = useCallback((itemId) => {
+    return isWishlisted(itemId);
+  }, [isWishlisted, wishlistIds, pendingOperations]);
+
+  const renderProductItem = useCallback(({ item }) => {
+    const isLiked = getWishlistStatus(item.id);
+    const isOutOfStock = item.inStock === false || item.availableQuantity === 0;
+    
+    return (
+      <TouchableOpacity 
+        style={[styles.productItem, isOutOfStock && styles.productItemOutOfStock]}
+        onPress={() => navigation.navigate('ProductDetail', { itemId: item.id })}
+        activeOpacity={0.8}
+      >
+        <View style={styles.productImageContainer}>
+          <Image 
+            source={item.image} 
+            style={[styles.productImage, isOutOfStock && styles.productImageOutOfStock]} 
+            resizeMode="cover" 
+          />
+          {isOutOfStock && (
+            <View style={styles.outOfStockOverlay}>
+              <Text style={styles.outOfStockText}>OUT OF STOCK</Text>
+            </View>
+          )}
+          <TouchableOpacity 
+            style={[
+              styles.likeButton,
+              pendingOperations.has(item.id) && styles.likeButtonDisabled,
+              isOutOfStock && styles.likeButtonOutOfStock
+            ]}
+            onPress={() => !isOutOfStock && handleToggleWishlist(item.id)}
+            disabled={pendingOperations.has(item.id) || isOutOfStock}
+            activeOpacity={0.8}
+          >
+            {isLiked ? (
+              <WishListedLike width={34} height={34} />
+            ) : (
+              <LikeIcon width={34} height={34} />
+            )}
+          </TouchableOpacity>
         </View>
-        <View style={styles.ratingContainer}>
-          <View style={styles.starsContainer}>
-            <Rating width={14} height={14} />
+        <View style={styles.productInfoContainer}>
+          <Text style={[styles.productTitle, isOutOfStock && styles.productTitleOutOfStock]}>{item.title}</Text>
+          <View style={styles.priceContainer}>
+            <Text style={[styles.productPrice, isOutOfStock && styles.productPriceOutOfStock]}>{item.price}</Text>
           </View>
-          <Text style={styles.ratingText}>{item.rating}</Text>
+          <View style={styles.ratingContainer}>
+            <View style={styles.starsContainer}>
+              <Rating width={14} height={14} />
+            </View>
+            <Text style={[styles.ratingText, isOutOfStock && styles.ratingTextOutOfStock]}>{item.rating}</Text>
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
-  ), [navigation]);
+      </TouchableOpacity>
+    );
+  }, [navigation, getWishlistStatus, handleToggleWishlist, pendingOperations]);
 
   return (
     <View style={styles.section}>
@@ -52,7 +132,7 @@ const HorizontalScrollSection = React.memo(({ section }) => {
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
-        data={section.data}
+        data={transformedData}
         keyExtractor={(item) => item.id}
         renderItem={renderProductItem}
         contentContainerStyle={styles.horizontalContainer}
@@ -130,6 +210,9 @@ const styles = StyleSheet.create({
     right: 3,
     padding: 4,
   },
+  likeButtonDisabled: {
+    opacity: 0.6,
+  },
   productInfoContainer: {
     marginTop: height * 0.01,
   },
@@ -195,6 +278,42 @@ const styles = StyleSheet.create({
     color: '#000',
     fontFamily: getFontFamily(),
     letterSpacing: 1.5,
+  },
+  // Out of stock styles
+  productItemOutOfStock: {
+    opacity: 0.6,
+  },
+  productImageOutOfStock: {
+    opacity: 0.7,
+  },
+  outOfStockOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  outOfStockText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 1,
+    textAlign: 'center',
+  },
+  likeButtonOutOfStock: {
+    opacity: 0.5,
+  },
+  productTitleOutOfStock: {
+    opacity: 0.6,
+  },
+  productPriceOutOfStock: {
+    opacity: 0.6,
+  },
+  ratingTextOutOfStock: {
+    opacity: 0.6,
   },
 });
 

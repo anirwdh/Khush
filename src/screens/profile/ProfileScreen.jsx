@@ -25,13 +25,14 @@ import DefaultIcon from '../../assets/Icons/DefualtIcon';
 import BottomTabBar from '../../Components/BottomTabBar.jsx';
 import { authService } from '../../services/api/authService';
 import { TokenStorage } from '../../utils/tokenStorage';
+import { userBootstrap } from '../../services/userBootstrap';
 
 
-const ProfileScreen = () => {
+const ProfileScreen = ({ route }) => {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const dispatch = useDispatch();
-  const [activeTab, setActiveTab] = React.useState(5); // Profile tab is active
+  const [activeTab, setActiveTab] = React.useState(route?.params?.activeTab || 5); // Profile tab is active
   const [isLoggingOut, setIsLoggingOut] = React.useState(false);
   const [userProfile, setUserProfile] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -105,6 +106,10 @@ const ProfileScreen = () => {
               if (result.success) {
                 console.log('✅ Logout successful');
                 
+                // Reset all bootstrap data
+                console.log('🗑️ Resetting user bootstrap data');
+                await userBootstrap.resetBootstrap();
+                
                 // Clear local storage
                 console.log('🗑️ Clearing local tokens');
                 TokenStorage.clear();
@@ -140,6 +145,10 @@ const ProfileScreen = () => {
               
               // Even if API fails, clear local storage and navigate to login
               console.log('🗑️ API failed, clearing local tokens anyway');
+              
+              // Reset all bootstrap data
+              await userBootstrap.resetBootstrap();
+              
               TokenStorage.clear();
               
               navigation.dispatch(

@@ -48,6 +48,23 @@ export const triggerStrongHaptic = () => {
 };
 
 /**
+ * Trigger a drizzle haptic feedback (like light rain drops)
+ * Creates a very subtle, quick haptic that mimics light drizzle
+ * Uses gentle light impacts with longer intervals for a delicate feel
+ */
+export const triggerDrizzleHaptic = () => {
+  try {
+    // Create a lighter drizzle effect with two very light impacts
+    ReactNativeHapticFeedback.trigger('impactLight', hapticOptions);
+    setTimeout(() => {
+      ReactNativeHapticFeedback.trigger('impactLight', hapticOptions);
+    }, 80);
+  } catch (error) {
+    // Silently fail if haptics are not available
+  }
+};
+
+/**
  * Trigger an AirDrop-style haptic feedback (like Apple's AirDrop)
  * Creates a smooth, distinctive haptic that mimics Apple's AirDrop vibration pattern
  * Uses notificationSuccess for that characteristic AirDrop feel

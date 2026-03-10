@@ -1,4 +1,51 @@
+import { sectionsService } from '../services/api/sectionsService';
+
 // Dynamic sections configuration for HomeScreen
+export const getDynamicSections = async (pinCode = '201309') => {
+  try {
+    const response = await sectionsService.getCategorySections({
+      pinCode,
+      page: 1,
+      limit: 5,
+      isWeb: false
+    });
+
+    if (response?.success && response?.data?.items) {
+      return response.data.items.map(section => ({
+        id: section._id,
+        title: section.title?.toUpperCase() || 'SECTION',
+        type: 'tabbed-grid',
+        sectionData: section, // Store original section data
+        categories: section.categories || [],
+        subcategories: section.subcategories || [],
+        products: section.products || [],
+        discount: section.discount,
+        mobileBanner: section.mobileBanner,
+        desktopBanner: section.desktopBanner,
+        navigation: section.navigation,
+        showExploreMore: true,
+        exploreMoreRoute: 'CollectionListingScreen'
+      }));
+    }
+    return [];
+  } catch (error) {
+    console.error('Error fetching dynamic sections:', error);
+    return [];
+  }
+};
+
+// Helper function to get all sections dynamically
+export const getAllSections = async (pinCode = '201309') => {
+  try {
+    const sections = await getDynamicSections(pinCode);
+    return sections;
+  } catch (error) {
+    console.error('Error getting all sections:', error);
+    return [];
+  }
+};
+
+// Fallback static configuration (kept for compatibility)
 export const SECTIONS_CONFIG = {
   newArrivals: {
     id: 'newArrivals',
@@ -32,7 +79,7 @@ export const SECTIONS_CONFIG = {
       ],
     },
     showExploreMore: true,
-    exploreMoreRoute: 'ProductListScreen',
+    exploreMoreRoute: 'CollectionListingScreen',
   },
   topTrends: {
     id: 'topTrends',
@@ -66,7 +113,7 @@ export const SECTIONS_CONFIG = {
       ],
     },
     showExploreMore: true,
-    exploreMoreRoute: 'ProductListScreen',
+    exploreMoreRoute: 'CollectionListingScreen',
   },
   bestSellers: {
     id: 'bestSellers',
@@ -80,7 +127,7 @@ export const SECTIONS_CONFIG = {
       { id: '37', image: require('../assets/Images/Image2.png'), title: 'Summer Dress', price: '$149', rating: 4.5 },
     ],
     showExploreMore: true,
-    exploreMoreRoute: 'ProductListScreen',
+    exploreMoreRoute: 'CollectionListingScreen',
   },
 };
 
@@ -91,12 +138,12 @@ export const DEFAULT_SECTIONS_ORDER = [
   'bestSellers',
 ];
 
-// Helper function to get section data
+// Helper function to get section data (fallback for static config)
 export const getSectionData = (sectionId) => {
   return SECTIONS_CONFIG[sectionId] || null;
 };
 
-// Helper function to get all sections in order
-export const getAllSections = () => {
+// Helper function to get all sections in order (fallback for static config)
+export const getStaticSections = () => {
   return DEFAULT_SECTIONS_ORDER.map(id => getSectionData(id)).filter(Boolean);
 };

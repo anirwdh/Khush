@@ -21,7 +21,7 @@ const DIMENSIONS = {
   verifyTop: height * 0.45,
 };
 
-const VerificationScreen = () => {
+const VerificationScreen = ({ route }) => {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [timer, setTimer] = useState(45);
   const [isTimerActive, setIsTimerActive] = useState(true);
@@ -29,8 +29,12 @@ const VerificationScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
   const inputRefs = [useRef(null), useRef(null), useRef(null), useRef(null), useRef(null), useRef(null)];
   const navigation = useNavigation();
-  const route = useRoute();
   const dispatch = useDispatch();
+  
+  // Get redirect parameters from route
+  const redirectTo = route?.params?.redirectTo;
+  const redirectParams = route?.params?.redirectParams || {};
+  const pendingAction = route?.params?.action;
   
   // Get user data passed from SignUpScreen or LoginScreen
   const { phoneNumber, countryCode, name, userId, isLogin } = route.params || {};
@@ -152,23 +156,23 @@ const VerificationScreen = () => {
           console.log('✅ User data stored in Redux state');
           console.log('✅ User object:', userData);
           
-          // Show success message
-          Alert.alert(
-            'Verification Successful',
-            isLogin ? 'Login successful! Welcome back.' : 'Phone number verified successfully!',
-            [
-              { 
-                text: 'OK', 
-                onPress: () => {
-                  // Navigate to HomeScreen after successful verification
-                  navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'HomeScreen' }],
-                  });
-                }
-              }
-            ]
-          );
+          // Navigate immediately without showing alert to avoid navigation conflicts
+          if (redirectTo) {
+            console.log('🔄 Navigating to:', redirectTo, 'with params:', redirectParams);
+            navigation.replace(redirectTo, redirectParams);
+          } else {
+            console.log('🔄 Navigating to HomeScreen (default)');
+            navigation.replace('HomeScreen');
+          }
+          
+          // Show success message after navigation to avoid conflicts
+          setTimeout(() => {
+            Alert.alert(
+              'Verification Successful',
+              isLogin ? 'Login successful! Welcome back.' : 'Phone number verified successfully!',
+              [{ text: 'OK' }] // Remove onPress to prevent navigation
+            );
+          }, 100);
         } else {
           console.error('OTP verification failed:', result.message);
           

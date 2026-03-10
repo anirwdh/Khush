@@ -38,6 +38,7 @@ import ProfileScreen from './src/screens/profile/ProfileScreen';
 import OrderScreen from './src/screens/profile/OrderScreen'; 
 import TrackOrdersScreen from './src/screens/profile/TrackOrdersScreen';
 import TrackOrderDetailScreen from './src/screens/profile/TrackOrderDetailScreen';
+import BillSummary from './src/screens/cart/BillSummary';
 
 
 const Stack = createNativeStackNavigator();
@@ -63,13 +64,13 @@ function AppContent() {
           initialRouteName="SplashScreen"
           screenOptions={{
             headerShown: false,
-            animation: 'fade',
+            animation: 'none',
           }}
         >
           <Stack.Screen name="SplashScreen" component={SplashScreen} />
           <Stack.Screen name="SplashScreen2" component={SplashScreen2} />
-          <Stack.Screen name="OnboardingScreen" component={OnboardingScreen} options={{ animation: 'slide_from_bottom'}}/>
-          <Stack.Screen name="LoginScreen" component={LoginScreen}options={{ animation: 'slide_from_right'}} />
+          <Stack.Screen name="OnboardingScreen" component={OnboardingScreen} options={{ animation: 'slide_from_right'}}/>
+          <Stack.Screen name="LoginScreen" component={LoginScreen}options={{ animation: 'slide_from_bottom'}} />
           <Stack.Screen name="SignUpScreen" component={SignUpScreen} options={{ animation: 'slide_from_right'}}/>
           <Stack.Screen name="VerificationScreen" component={VerificationScreen} options={{ animation: 'slide_from_right'}}/>
           <Stack.Screen name="HomeScreen" component={HomeScreen} options={{ gestureEnabled: false, headerBackVisible: false }} />
@@ -87,6 +88,7 @@ function AppContent() {
           <Stack.Screen name="OrderScreen" component={OrderScreen}options={{ animation: 'slide_from_right'}} />
           <Stack.Screen name="TrackOrdersScreen" component={TrackOrdersScreen}options={{ animation: 'slide_from_right'}} />
           <Stack.Screen name="TrackOrderDetailScreen" component={TrackOrderDetailScreen}options={{ animation: 'slide_from_right'}} /> 
+          <Stack.Screen name="BillSummary" component={BillSummary}options={{ animation: 'slide_from_right'}} /> 
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>

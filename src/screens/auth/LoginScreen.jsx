@@ -21,12 +21,18 @@ const DIMENSIONS = {
   laterTop: height * 0.248,
 };
 
-const LoginScreen = () => {
+const LoginScreen = ({ route }) => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
   const inputRef = useRef(null);
   const navigation = useNavigation();
+  
+  // Get redirect parameters from route
+  const redirectTo = route?.params?.redirectTo;
+  const redirectParams = route?.params?.redirectParams || {};
+  const pendingAction = route?.params?.action;
+  const previousTab = route?.params?.previousTab;
 
   // Memoized keyboard handlers
   const handleKeyboardShow = useCallback(() => {
@@ -57,34 +63,29 @@ const LoginScreen = () => {
       setIsLoading(true);
       
       try {
-        console.log('=== LOGIN DEBUG ===');
-        console.log('Phone number:', phoneNumber);
-        
         const loginData = {
           countryCode: '+91',
           phoneNumber: phoneNumber
         };
         
-        console.log('Sending login data:', loginData);
-        
         // Call login API
         const result = await authService.login(loginData);
         
         if (result.success) {
-          console.log('Login successful:', result.data);
-          console.log('Response structure:', JSON.stringify(result.data, null, 2));
-          
           // Extract userId from the correct location in response
           const userId = result.data?.userId || result.data?.data?.userId || result.data?.user?._id || result.data?._id;
-          console.log('Extracted userId:', userId);
           
-          // Navigate to OTP verification screen with userId
+          // Navigate to OTP verification screen with userId and redirect info
           navigation.navigate('VerificationScreen', { 
             phoneNumber: phoneNumber,
             countryCode: '+91',
             name: '', // No name for login
             userId: userId,
-            isLogin: true // Flag to distinguish login from signup
+            isLogin: true, // Flag to distinguish login from signup
+            // Pass redirect info to VerificationScreen
+            redirectTo,
+            redirectParams,
+            pendingAction
           });
           
           // Show success message
@@ -94,21 +95,19 @@ const LoginScreen = () => {
             [{ text: 'OK' }]
           );
         } else {
-          console.error('Login failed:', result.message);
-          
           // Check if user doesn't exist (resource not found)
-          if (result.message?.toLowerCase().includes('resource not found') || 
+          if (result.message?.toLowerCase().includes('phone number not registered') || 
+              result.message?.toLowerCase().includes('resource not found') || 
               result.message?.toLowerCase().includes('user not found') ||
-              result.message?.toLowerCase().includes('not registered')) {
+              result.message?.toLowerCase().includes('not registered') ||
+              result.message?.toLowerCase().includes('please register first')) {
             
-            // Navigate to signup screen
+            // Show alert and auto-navigate to signup screen
             Alert.alert(
               'Account Not Found',
-              "You Haven't signed up yet",
-              [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Sign Up', onPress: () => navigation.navigate('SignUpScreen') }
-              ]
+              "You Haven't signed up yet. Redirecting to Sign Up...",
+              [{ text: 'OK' }],
+              { onDismiss: () => navigation.navigate('SignUpScreen') }
             );
           } else {
             // Show general error message
@@ -120,14 +119,31 @@ const LoginScreen = () => {
           }
         }
       } catch (error) {
-        console.error('Login error:', error);
-        
-        // Show error message
-        Alert.alert(
-          'Login Error',
-          'Network error. Please check your connection and try again.',
-          [{ text: 'OK' }]
-        );
+        // Check if it's a 404 error (user not registered)
+        if (error.response?.status === 404 || 
+            error.message?.toLowerCase().includes('phone number not registered') ||
+            error.response?.data?.message?.toLowerCase().includes('phone number not registered') ||
+            error.response?.data?.message?.toLowerCase().includes('please register first')) {
+          
+          // Show alert and auto-navigate to signup screen
+          Alert.alert(
+            'Account Not Found',
+            "You Haven't signed up yet. Redirecting to Sign Up...",
+            [{ text: 'OK' }]
+          );
+          
+          // Navigate immediately after showing alert
+          setTimeout(() => {
+            navigation.navigate('SignUpScreen');
+          }, 100);
+        } else {
+          // Show general error message
+          Alert.alert(
+            'Login Error',
+            error.response?.data?.message || error.message || 'Network error. Please check your connection and try again.',
+            [{ text: 'OK' }]
+          );
+        }
       } finally {
         setIsLoading(false);
       }
@@ -143,8 +159,38 @@ const LoginScreen = () => {
 
   const handleDoItLater = useCallback(() => {
     console.log('Do it later pressed');
-    navigation.navigate('HomeScreen');
-  }, [navigation]);
+    
+    // If this was a wishlist or cart action, navigate back to previous screen instead of opening the respective screen
+    if ((pendingAction === 'wishlist' || pendingAction === 'cart') && previousTab) {
+      // Navigate to the screen corresponding to the previous tab
+      switch (previousTab) {
+        case 1: // Home
+          navigation.replace('HomeScreen', { fromBottomTab: true });
+          break;
+        case 3: // Categories
+          navigation.replace('CollectionsScreen', { fromBottomTab: true });
+          break;
+        case 4: // Cart
+          navigation.replace('CartScreen', { fromBottomTab: true });
+          break;
+        case 5: // Profile
+          navigation.replace('ProfileScreen', { fromBottomTab: true });
+          break;
+        default:
+          // Fallback to Home if previous tab is unknown
+          navigation.replace('HomeScreen', { fromBottomTab: true });
+      }
+    } else if (redirectTo === 'ProductDetail' || redirectTo === 'HomeScreen' || redirectTo === 'CollectionListingScreen') {
+      // For these screens, just go back instead of navigating to avoid duplicates
+      navigation.goBack();
+    } else if (redirectTo) {
+      // For other actions, navigate back to original screen (original behavior)
+      navigation.replace(redirectTo, redirectParams);
+    } else {
+      // Default fallback to Home (original behavior)
+      navigation.replace('HomeScreen');
+    }
+  }, [navigation, redirectTo, redirectParams, pendingAction, previousTab]);
 
   const handleSignup = useCallback(() => {
     console.log('Signup pressed');

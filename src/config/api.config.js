@@ -1,7 +1,6 @@
 export const API_CONFIG = {
-  BASE_URL: __DEV__ 
-    ? 'http://192.168.1.27:5000/api' 
-    : 'https://api.khush.com',
+  BASE_URL: 'https://api.khushpehno.com/api',
+  //BASE_URL: 'http://192.168.1.36:5000/api',
   
   TIMEOUT: 15000,
   
@@ -32,6 +31,15 @@ export const API_CONFIG = {
       UPDATE: '/cart/update/:id',
       REMOVE: '/cart/remove/:id',
       CLEAR: '/cart/clear',
+      // Quantity operations (matching API documentation)
+      INCREASE_QUANTITY: '/cart/increaseqty/:sku',
+      DECREASE_QUANTITY: '/cart/decreaseqty/:sku',
+      REMOVE_BY_SKU: '/cart/remove/:sku',
+      GET_MY_CART: '/cart/my',
+      SET_DELIVERY_ADDRESS: '/cart/delivery-address',
+      SELECT_DELIVERY: '/cart/select-delivery',
+      GET_PRICE_SUMMARY: '/cart/price-summary',
+      APPLY_COUPON: '/cart/apply-coupon',
     },
     CATEGORIES: {
       GET_ALL: '/categories/getAll',

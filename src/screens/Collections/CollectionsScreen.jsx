@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Dimensions, Platform, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import BottomTabBar from '../../Components/BottomTabBar.jsx';
 import { getCategories } from '../../services/subcategoryService';
 
@@ -9,44 +9,33 @@ const { width, height } = Dimensions.get('window');
 
 const CollectionsScreen = ({ route }) => {
   const navigation = useNavigation();
-  const [activeTab, setActiveTab] = useState(3); // Categories tab is active
+  const [activeTab, setActiveTab] = useState(route?.params?.activeTab || 3); // Categories tab is active
   const [showTabBar, setShowTabBar] = useState(route?.params?.fromBottomTab || false);
   const [loadedImages, setLoadedImages] = useState({});
 
-  // Fetch categories using Infinite Query for pagination
-  const { data, isLoading, fetchNextPage, hasNextPage } = useInfiniteQuery({
+  // Fetch categories using regular query
+  const { data, isLoading } = useQuery({
     queryKey: ['collections'],
-    queryFn: ({ pageParam = 1 }) => getCategories({ page: pageParam, limit: 4 }),
-    getNextPageParam: (lastPage, allPages) => {
-      const nextPage = allPages.length + 1;
-      return nextPage <= lastPage.pagination?.totalPages ? nextPage : undefined;
-    },
+    queryFn: () => getCategories({ page: 1, limit: 100 }),
     staleTime: 5 * 60 * 1000, // 5 minutes - data considered fresh
     cacheTime: 10 * 60 * 1000, // 10 minutes - keep in cache
     refetchOnWindowFocus: false, // Don't refetch when app comes to foreground
     refetchOnReconnect: false, // Don't refetch on network reconnect
   });
 
-  // Flatten and transform API data to match UI structure
-  const collectionData = useMemo(() => data?.pages?.flatMap(page => 
-    page.categories?.map(category => ({
+  // Transform API data to match UI structure
+  const collectionData = useMemo(() => 
+    data?.categories?.map(category => ({
       id: category._id,
-      title: category.name.toUpperCase(),
+      title: category.name?.toUpperCase() || '',
       image: { uri: category.imageUrl },
     })) || []
-  ) || [], [data]);
+  , [data]);
 
   const handleTabPress = (tabId) => {
     setActiveTab(tabId);
     // Navigation is now handled in BottomTabBar component
   };
-
-  // Handle pagination on scroll end
-  const handleEndReached = useCallback(() => {
-    if (hasNextPage && !isLoading) {
-      fetchNextPage();
-    }
-  }, [hasNextPage, isLoading, fetchNextPage]);
 
   // Handle image load
   const handleImageLoad = useCallback((itemId) => {
@@ -86,14 +75,31 @@ const CollectionsScreen = ({ route }) => {
     );
   }, [navigation, loadedImages, handleImageLoad]);
 
+  // Skeleton Component for loading state
+  const CollectionSkeleton = () => (
+    <View style={styles.collectionCard}>
+      <View style={styles.imageWrapper}>
+        <View style={styles.skeletonImage} />
+      </View>
+      <View style={[styles.textOverlay, styles.textLeft]}>
+        <View style={styles.skeletonTitle} />
+        <View style={styles.skeletonSubtitle} />
+      </View>
+    </View>
+  );
+
   // Show loading skeleton while data is loading
-  if (isLoading && (!data || data.pages.length === 0)) {
+  if (isLoading && !data) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.collectionsText}>COLLECTIONS</Text>
         </View>
-        <ActivityIndicator size="large" style={styles.loadingIndicator} />
+        <View style={styles.listContainer}>
+          {[1, 2, 3, 4].map((index) => (
+            <CollectionSkeleton key={index} />
+          ))}
+        </View>
       </View>
     );
   }
@@ -112,8 +118,6 @@ const CollectionsScreen = ({ route }) => {
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContainer}
-        onEndReached={handleEndReached}
-        onEndReachedThreshold={0.5}
         initialNumToRender={2}
         maxToRenderPerBatch={2}
         windowSize={3}
@@ -171,6 +175,25 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  // Skeleton styles
+  skeletonImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#f2f2f2',
+  },
+  skeletonTitle: {
+    width: 120,
+    height: 34,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+    marginBottom: 4,
+  },
+  skeletonSubtitle: {
+    width: 80,
+    height: 14,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 2,
   },
   textOverlay: {
     position: 'absolute',

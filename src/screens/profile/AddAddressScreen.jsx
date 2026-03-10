@@ -1,11 +1,15 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Platform, Dimensions, ScrollView, TextInput, Image, KeyboardAvoidingView, Pressable } from 'react-native';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Dimensions, ScrollView, TextInput, Image, KeyboardAvoidingView, Pressable, ActivityIndicator, Animated } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import BackIcon from '../../assets/Icons/BackIcon.jsx';
 import DeleteIcon from '../../assets/Icons/DeleteIcon.jsx';
 import EditIcon from '../../assets/Icons/EditIcon.jsx';
 import AddressIcon from '../../assets/Icons/LocationIcon.jsx';
 import EditAddressOverlay from '../../Components/EditAddressOverlay.jsx';
+import { useGeolocation } from '../../hooks/useGeolocation';
+import apiClient from '../../services/api/apiClient';
+import AddressService from '../../services/addressService';
+import { triggerMediumHaptic, triggerWaterDropletHaptic } from '../../utils/haptic';
 
 const { width, height } = Dimensions.get('window');
 
@@ -15,6 +19,25 @@ const AddAddressScreen = () => {
   const [showEditOverlay, setShowEditOverlay] = useState(false);
   const [editingAddress, setEditingAddress] = useState(null);
 
+  // Geolocation hook
+  const { 
+    loading: locationLoading, 
+    error: locationError, 
+    permissionGranted, 
+    pincode, 
+    formattedAddress,
+    requestLocation 
+  } = useGeolocation();
+
+  // State for addresses from API
+  const [addresses, setAddresses] = useState([]);
+  const [loadingAddresses, setLoadingAddresses] = useState(false);
+  const [addressesError, setAddressesError] = useState(null);
+  
+  // Animation values for smooth selection
+  const selectedAddressScale = useRef(new Animated.Value(1)).current;
+  const [animatingAddressId, setAnimatingAddressId] = useState(null);
+  
   // Current address - hardcoded to match screenshot (you can make this dynamic via props or API)
   const currentAddress = {
     street: '606-3727 ULLAMCORPORER. STREET',
@@ -22,40 +45,115 @@ const AddAddressScreen = () => {
     phone: '(786) 713-8616',
   };
 
-  // Additional addresses - now dynamic
-  const [additionalAddresses, setAdditionalAddresses] = useState([
-    {
-      id: 2,
-      street: '123-456 MAIN STREET',
-      cityStateZip: 'NEW YORK NY 10001',
-      phone: '(212) 555-1234',
-    },
-    {
-      id: 3,
-      street: '789-101 OAK AVENUE',
-      cityStateZip: 'LOS ANGELES CA 90001',
-      phone: '(310) 555-5678',
-    },
-    {
-      id: 4,
-      street: '456-789 ELM STREET',
-      cityStateZip: 'CHICAGO IL 60601',
-      phone: '(312) 555-9012',
-    }
-  ]);
+  // Additional addresses - now from API
+  const additionalAddresses = addresses.map(addr => ({
+    id: addr._id,
+    street: addr.addressLine,
+    cityStateZip: `${addr.city} ${addr.state} ${addr.pinCode}`,
+    phone: `${addr.countryCode} ${addr.phoneNumber}`,
+    isDefault: addr.isDefault,
+    name: addr.name,
+    addressType: addr.addressType,
+    // Add individual fields for edit modal
+    city: addr.city,
+    state: addr.state,
+    pinCode: addr.pinCode.toString(),
+    phoneNumber: addr.phoneNumber,
+    countryCode: addr.countryCode,
+    addressLine: addr.addressLine,
+  }));
 
   // State to track which address is selected for delivery
-  const [selectedDeliveryAddressId, setSelectedDeliveryAddressId] = useState(2); // Default to address ID 2
+  const defaultAddress = additionalAddresses.find(addr => addr.isDefault);
+  const [selectedDeliveryAddressId, setSelectedDeliveryAddressId] = useState(defaultAddress?.id || null);
 
   // Form data for new address
   const [formData, setFormData] = useState({
     name: '',
-    address: '',
+    address: '', // Empty for new address input
     city: '',
     state: '',
-    pinCode: '',
+    pinCode: pincode || '', // Keep pincode if available
     phone: '',
+    addressType: 'HOME', // Default to HOME
   });
+
+  // Update form when location data changes (only pincode, not address)
+  useEffect(() => {
+    if (pincode) {
+      setFormData(prev => ({
+        ...prev,
+        pinCode: pincode, // Only update pincode, keep address empty
+      }));
+    }
+  }, [pincode]);
+
+  // Fetch addresses from API
+  const fetchAddresses = useCallback(async () => {
+    try {
+      setLoadingAddresses(true);
+      setAddressesError(null);
+      
+      // Use AddressService to get addresses
+      const data = await AddressService.getAllAddresses();
+      
+      if (data.success) {
+        setAddresses(data.data.addresses);
+        
+        // Set default address if available
+        const defaultAddr = data.data.addresses.find(addr => addr.isDefault);
+        if (defaultAddr) {
+          setSelectedDeliveryAddressId(defaultAddr._id);
+          console.log('📍 Default address set:', defaultAddr._id);
+        }
+      } else {
+        throw new Error(data.message || 'Failed to fetch addresses');
+      }
+    } catch (error) {
+      console.error('❌ Error fetching addresses:', error);
+      let errorMessage = 'Failed to fetch addresses';
+      
+      if (error.customMessage) {
+        errorMessage = error.customMessage;
+      } else if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Server error. Please try again later.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Authentication error. Please login again.';
+      } else {
+        errorMessage = error.message || 'An unexpected error occurred';
+      }
+      
+      setAddressesError(errorMessage);
+    } finally {
+      setLoadingAddresses(false);
+    }
+  }, []);
+
+  // Fetch addresses on component mount
+  useEffect(() => {
+    fetchAddresses();
+  }, [fetchAddresses]);
+
+  // Update selected delivery address when addresses change
+  useEffect(() => {
+    const defaultAddr = additionalAddresses.find(addr => addr.isDefault);
+    if (defaultAddr && !selectedDeliveryAddressId) {
+      setSelectedDeliveryAddressId(defaultAddr.id);
+    }
+  }, [additionalAddresses, selectedDeliveryAddressId]);
+
+  // Handle location refetch
+  const handleRefetchLocation = async () => {
+    try {
+      console.log('📍 ADD ADDRESS: Refetching location...');
+      await requestLocation();
+      console.log('📍 ADD ADDRESS: Location refetched successfully');
+    } catch (error) {
+      console.error('❌ ADD ADDRESS: Location refetch failed:', error);
+    }
+  };
 
   const handleInputChange = useCallback((field, value) => {
     setFormData(prev => ({
@@ -64,46 +162,125 @@ const AddAddressScreen = () => {
     }));
   }, []);
 
-  const handleConfirmAddress = useCallback(() => {
+  const handleConfirmAddress = useCallback(async () => {
     // Validate fields
     if (!formData.name || !formData.address || !formData.city || !formData.state || !formData.pinCode || !formData.phone) {
       alert('Please fill in all fields');
       return;
     }
 
-    // Create new address object
-    const newAddress = {
-      id: Date.now(), // Simple unique ID
-      name: formData.name,
-      street: formData.address,
-      cityStateZip: `${formData.city.toUpperCase()} ${formData.state} ${formData.pinCode}`,
-      phone: formData.phone,
-      isDeliveryAddress: false, // Default to not selected
-    };
+    try {
+      // Create new address object for API
+      const newAddressData = {
+        name: formData.name.trim(),
+        phoneNumber: formData.phone.trim(),
+        countryCode: '+91',
+        addressLine: formData.address.trim(),
+        city: formData.city.trim(),
+        state: formData.state.trim(),
+        pinCode: formData.pinCode.trim(),
+        country: 'India',
+        addressType: formData.addressType,
+        isDefault: false,
+      };
 
-    // Add new address to the list
-    setAdditionalAddresses(prev => [...prev, newAddress]);
+      console.log('🚀 Creating new address:', newAddressData);
 
-    // Reset form
-    setFormData({
-      name: '',
-      address: '',
-      city: '',
-      state: '',
-      pinCode: '',
-      phone: '',
-    });
+      // Use AddressService to create address
+      const result = await AddressService.createAddress(newAddressData);
+      
+      if (result.success) {
+        // Refresh addresses list
+        await fetchAddresses();
+        
+        // Reset form
+        setFormData({
+          name: '',
+          address: '', // Keep empty for new address input
+          city: '',
+          state: '',
+          pinCode: pincode || '', // Keep current pincode if available
+          phone: '',
+          addressType: 'HOME', // Reset to default
+        });
 
-    console.log('New address added:', newAddress);
-  }, [formData]);
-
-  const handleRemoveAddress = useCallback((addressId) => {
-    setAdditionalAddresses(prev => prev.filter(addr => addr.id !== addressId));
-    // If removing the selected delivery address, reset selection to current location (id: 1)
-    if (selectedDeliveryAddressId === addressId) {
-      setSelectedDeliveryAddressId(1);
+        alert('Address added successfully!');
+        console.log('✅ Address created successfully');
+      } else {
+        throw new Error(result.message || 'Failed to create address');
+      }
+    } catch (error) {
+      console.error('❌ Error creating address:', error);
+      
+      let errorMessage = 'Failed to create address';
+      
+      if (error.customMessage) {
+        errorMessage = error.customMessage;
+      } else if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Server error. Please try again later.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Authentication error. Please login again.';
+      } else if (error.response?.status === 422) {
+        errorMessage = 'Invalid data. Please check all fields.';
+      } else if (error.response?.status === 500 && error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else {
+        errorMessage = error.message || 'An unexpected error occurred';
+      }
+      
+      alert(errorMessage);
     }
-  }, [selectedDeliveryAddressId]);
+  }, [formData, fetchAddresses]);
+
+  const handleRemoveAddress = useCallback(async (addressId) => {
+    try {
+      // Trigger haptic feedback for delete
+      triggerMediumHaptic();
+      
+      // Use AddressService to delete address
+      const result = await AddressService.deleteAddress(addressId);
+      
+      if (result.success) {
+        // Remove from local state immediately for better UX
+        setAddresses(prev => prev.filter(addr => addr._id !== addressId));
+        
+        // If removing the selected delivery address, reset selection to default address
+        if (selectedDeliveryAddressId === addressId) {
+          const defaultAddr = addresses.find(addr => addr.isDefault && addr._id !== addressId);
+          setSelectedDeliveryAddressId(defaultAddr?._id || null);
+        }
+        
+        // Refresh addresses to get updated list
+        await fetchAddresses();
+        alert('Address deleted successfully!');
+        console.log('✅ Address deleted successfully');
+      } else {
+        throw new Error(result.message || 'Failed to delete address');
+      }
+    } catch (error) {
+      console.error('❌ Error deleting address:', error);
+      
+      let errorMessage = 'Failed to delete address';
+      
+      if (error.customMessage) {
+        errorMessage = error.customMessage;
+      } else if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Server error. Please try again later.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Authentication error. Please login again.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Address not found.';
+      } else {
+        errorMessage = error.message || 'An unexpected error occurred';
+      }
+      
+      alert(errorMessage);
+    }
+  }, [addresses, selectedDeliveryAddressId, fetchAddresses]);
 
   const handleEditCurrentAddress = useCallback(() => {
     setShowEditOverlay(true);
@@ -114,23 +291,135 @@ const AddAddressScreen = () => {
     setShowEditOverlay(true);
   }, []);
 
-  const handleSaveEditedAddress = useCallback((editedData) => {
-    if (editingAddress) {
-      setAdditionalAddresses(prev => 
-        prev.map(addr => 
-          addr.id === editingAddress.id 
-            ? { ...addr, ...editedData }
-            : addr
-        )
-      );
+  const handleSaveEditedAddress = useCallback(async (editedData) => {
+    try {
+      // Trigger haptic feedback for save
+      triggerMediumHaptic();
+      
+      // Use AddressService to update address
+      const result = await AddressService.updateAddress(editingAddress.id, editedData);
+      
+      if (result.success) {
+        // Update local state immediately for better UX
+        setAddresses(prev => 
+          prev.map(addr => 
+            addr._id === editingAddress.id 
+              ? { ...addr, ...editedData }
+              : addr
+          )
+        );
+        
+        // Refresh addresses to get updated list
+        await fetchAddresses();
+        
+        alert('Address updated successfully!');
+        console.log('✅ Address updated successfully');
+      } else {
+        throw new Error(result.message || 'Failed to update address');
+      }
+    } catch (error) {
+      console.error('❌ Error updating address:', error);
+      
+      let errorMessage = 'Failed to update address';
+      
+      if (error.customMessage) {
+        errorMessage = error.customMessage;
+      } else if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Server error. Please try again later.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Authentication error. Please login again.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Address not found.';
+      } else if (error.response?.status === 422) {
+        errorMessage = 'Invalid data. Please check all fields.';
+      } else {
+        errorMessage = error.message || 'An unexpected error occurred';
+      }
+      
+      alert(errorMessage);
     }
-    setShowEditOverlay(false);
-    setEditingAddress(null);
-  }, [editingAddress]);
+  }, [editingAddress, fetchAddresses]);
 
-  const handleSelectDeliveryAddress = useCallback((addressId) => {
-    setSelectedDeliveryAddressId(addressId);
-  }, []);
+  const handleSelectDeliveryAddress = useCallback(async (addressId) => {
+    // Prevent multiple rapid selections
+    if (animatingAddressId === addressId) return;
+    
+    try {
+      // Trigger haptic feedback for selection
+      triggerMediumHaptic();
+      
+      // Set animating state
+      setAnimatingAddressId(addressId);
+      
+      // Animate selection with smooth scale
+      Animated.sequence([
+        Animated.timing(selectedAddressScale, {
+          toValue: 0.95,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(selectedAddressScale, {
+          toValue: 1.05,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(selectedAddressScale, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]).start();
+      
+      // First set local state for immediate UI update
+      setSelectedDeliveryAddressId(addressId);
+      
+      // Use AddressService to set as default address
+      const result = await AddressService.setDefaultAddress(addressId);
+      
+      if (result.success) {
+        // Success haptic
+        triggerWaterDropletHaptic();
+        
+        // Refresh addresses to get updated default status
+        await fetchAddresses();
+        alert('Address set as default successfully!');
+        console.log('✅ Address set as default successfully');
+      } else {
+        throw new Error(result.message || 'Failed to set default address');
+      }
+    } catch (error) {
+      console.error('❌ Error setting default address:', error);
+      
+      let errorMessage = 'Failed to set default address';
+      
+      if (error.customMessage) {
+        errorMessage = error.customMessage;
+      } else if (error.code === 'NETWORK_ERROR' || error.message === 'Network Error') {
+        errorMessage = 'Network error. Please check your connection.';
+      } else if (error.response?.status >= 500) {
+        errorMessage = 'Server error. Please try again later.';
+      } else if (error.response?.status === 401) {
+        errorMessage = 'Authentication error. Please login again.';
+      } else if (error.response?.status === 404) {
+        errorMessage = 'Address not found.';
+      } else {
+        errorMessage = error.message || 'An unexpected error occurred';
+      }
+      
+      alert(errorMessage);
+      
+      // Revert selection if API call failed
+      const defaultAddr = additionalAddresses.find(addr => addr.isDefault);
+      if (defaultAddr) {
+        setSelectedDeliveryAddressId(defaultAddr.id);
+      }
+    } finally {
+      // Clear animating state
+      setAnimatingAddressId(null);
+    }
+  }, [additionalAddresses, fetchAddresses, animatingAddressId]);
 
   return (
     <>
@@ -170,23 +459,26 @@ const AddAddressScreen = () => {
                     styles.currentLocationPill,
                     pressed && { opacity: 0.9 },
                   ]}
-                  onPress={() => {
-                    // TODO: Open map / detect location
-                    console.log('Use current location');
-                  }}
+                  onPress={handleRefetchLocation}
                 >
                   {/* Icon */}
                   <View style={styles.locationIconWrap}>
-                    <AddressIcon width={34} height={34} />
+                    {locationLoading ? (
+                      <ActivityIndicator size="small" color="#000" />
+                    ) : (
+                      <AddressIcon width={34} height={34} />
+                    )}
                   </View>
 
                   {/* Address text */}
                   <Text
                     style={styles.currentLocationText}
-                    numberOfLines={1}
+                    numberOfLines={2}
                     ellipsizeMode="tail"
                   >
-                    B-127, B BLOCK, SECTOR 69, NOIDA
+                    {locationLoading ? 'Getting location...' : 
+                     locationError ? 'Location error' :
+                     formattedAddress || 'Tap to get location'}
                   </Text>
                 </Pressable>
               </View>
@@ -196,49 +488,67 @@ const AddAddressScreen = () => {
 
               {/* ADDITIONAL ADDRESSES SECTION */}
               <View style={styles.additionalAddressesSection}>
-               
-                
-                {/* Thin separator below section title */}
-                {/* <View style={styles.sectionTitleSeparator} /> */}
-                
-                {additionalAddresses.map((address) => (
-                  <View key={address.id} style={[
-                    styles.addressContainer,
-                    selectedDeliveryAddressId === address.id && styles.selectedAddressContainer
-                  ]}>
-                    <View style={styles.addressLine}>
-                      <Text style={styles.addressText}>{address.street}</Text>
-                      <View style={styles.iconRow}>
-                        <Pressable onPress={() => handleRemoveAddress(address.id)} style={({ pressed }) => [{ opacity: pressed ? 0.7 : 1 }]}>
-                          <DeleteIcon width={15} height={17} />
-                        </Pressable>
-                        <Pressable style={[styles.editIcon, ({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })]} onPress={() => handleEditAddress(address)}>
-                          <EditIcon width={16} height={16} />
-                        </Pressable>
-                      </View>
-                    </View>
-                    
-                    <Text style={styles.addressText}>{address.cityStateZip}</Text>
-                    <Text style={styles.phoneText}>{address.phone}</Text>
-                    
-                    <Pressable
-                    style={({ pressed }) => [
-                      styles.deliveryButton,
-                      selectedDeliveryAddressId === address.id && styles.deliveryButtonSelected,
-                      pressed && { opacity: 0.8 },
-                    ]}
-                    onPress={() => handleSelectDeliveryAddress(address.id)}
-                  >
-                    <Text style={[styles.deliveryButtonText, selectedDeliveryAddressId === address.id && styles.deliveryButtonTextSelected]}>
-                      {selectedDeliveryAddressId === address.id ? 'SELECTED AS DELIVERY ADDRESS' : 'SET AS DELIVERY ADDRESS'}
-                    </Text>
-                  </Pressable>
-               
-                  
-                  {/* Thin separator below each address */}
-                  <View style={styles.addressSeparator} />
+                {loadingAddresses ? (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="small" color="#000" />
+                    <Text style={styles.loadingText}>Loading addresses...</Text>
                   </View>
-                ))}
+                ) : addressesError ? (
+                  <View style={styles.errorContainer}>
+                    <Text style={styles.errorText}>{addressesError}</Text>
+                    <TouchableOpacity style={styles.retryButton} onPress={fetchAddresses}>
+                      <Text style={styles.retryButtonText}>Retry</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : additionalAddresses.length === 0 ? (
+                  <View style={styles.emptyContainer}>
+                    <Text style={styles.emptyText}>No saved addresses</Text>
+                  </View>
+                ) : (
+                  additionalAddresses.map((address) => (
+                    <View key={address.id} style={[
+                      styles.addressContainer,
+                      selectedDeliveryAddressId === address.id && styles.selectedAddressContainer
+                    ]}>
+                      <View style={styles.addressLine}>
+                        <View style={styles.addressTextWrapper}>
+                          <Text style={styles.addressText}>{address.street}</Text>
+                          <Text style={styles.addressText}>{address.cityStateZip}</Text>
+                          <Text style={styles.phoneText}>{address.phone}</Text>
+                        </View>
+                        <View style={styles.iconRow}>
+                          <Pressable onPress={() => handleRemoveAddress(address.id)} style={({ pressed }) => [styles.deleteButton, { opacity: pressed ? 0.7 : 1 }]}>
+                            <DeleteIcon width={15} height={17} />
+                          </Pressable>
+                          <Pressable style={[styles.editIcon, ({ pressed }) => ({ opacity: pressed ? 0.7 : 1 })]} onPress={() => handleEditAddress(address)}>
+                            <EditIcon width={16} height={16} />
+                          </Pressable>
+                        </View>
+                      </View>
+                      
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.deliveryButton,
+                          selectedDeliveryAddressId === address.id && styles.deliveryButtonSelected,
+                          pressed && { opacity: 0.8 },
+                        ]}
+                        onPress={() => handleSelectDeliveryAddress(address.id)}
+                      >
+                        <Animated.View style={{
+                          transform: [{ scale: selectedDeliveryAddressId === address.id ? selectedAddressScale : 1 }]
+                        }}>
+                          <Text style={[styles.deliveryButtonText, selectedDeliveryAddressId === address.id && styles.deliveryButtonTextSelected]}>
+                            {selectedDeliveryAddressId === address.id ? 'SELECTED AS DELIVERY ADDRESS' : 'SET AS DELIVERY ADDRESS'}
+                          </Text>
+                        </Animated.View>
+                      </Pressable>
+                    
+                      
+                      {/* Thin separator below each address */}
+                      <View style={styles.addressSeparator} />
+                    </View>
+                  ))
+                )}
               </View>
 
               {/* Divider */}
@@ -301,9 +611,32 @@ const AddAddressScreen = () => {
                       placeholder="Pin code"
                       placeholderTextColor="#999"
                       keyboardType="numeric"
-                      maxLength={5}
+                      maxLength={6}
                     />
                   </View>
+                </View>
+
+                {/* Country */}
+                <View style={styles.inputGroup}>
+                  <TextInput
+                    style={styles.input}
+                    value="India"
+                    editable={false}
+                    placeholder="Country"
+                    placeholderTextColor="#999"
+                  />
+                </View>
+
+                {/* Address Type */}
+                <View style={styles.inputGroup}>
+                  <TextInput
+                    style={styles.input}
+                    value={formData.addressType}
+                    onChangeText={(value) => handleInputChange('addressType', value)}
+                    placeholder="Address Type (e.g., HOME, WORK, OTHER)"
+                    placeholderTextColor="#999"
+                    autoCapitalize="characters"
+                  />
                 </View>
 
                 {/* Phone Number */}
@@ -317,6 +650,11 @@ const AddAddressScreen = () => {
                     keyboardType="phone-pad"
                   />
                 </View>
+
+                {/* Add New Address Button */}
+                <TouchableOpacity style={styles.addNewAddressBtn} onPress={handleConfirmAddress}>
+                  <Text style={styles.addNewAddressBtnText}>ADD NEW ADDRESS</Text>
+                </TouchableOpacity>
               </View>
 
               {/* Extra padding at bottom for button space */}
@@ -339,7 +677,11 @@ const AddAddressScreen = () => {
             setShowEditOverlay(false);
             setEditingAddress(null);
           }}
-          onSave={handleSaveEditedAddress}
+          onSave={async (editedData) => {
+            await handleSaveEditedAddress(editedData);
+            setShowEditOverlay(false);
+            setEditingAddress(null);
+          }}
           address={editingAddress}
         />
       )}
@@ -434,15 +776,24 @@ const styles = StyleSheet.create({
   addressLine: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    marginBottom: 10,
+  },
+  addressTextWrapper: {
+    flex: 1,
+    marginRight: 10,
   },
   iconRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 15,
+    alignItems: 'flex-start',
+    gap: 8,
+    marginTop: 4,
+  },
+  deleteButton: {
+    padding: 4,
   },
   editIcon: {
-    marginLeft: 5,
+    padding: 4,
   },
   addressText: {
     fontSize: 15,
@@ -475,7 +826,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: '#000',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   input: {
     fontSize: 16,
@@ -517,13 +868,16 @@ const styles = StyleSheet.create({
     marginVertical: 8,
   },
   addressContainer: {
-  
+    backgroundColor: '#f9f9f9',
     borderRadius: 8,
     marginBottom: 20,
     padding: 12,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
   },
   selectedAddressContainer: {
-    backgroundColor: '#fafafa',
+    backgroundColor: '#f8fdfeff',
+    borderColor: '#eef2f5ff',
   },
  
   selectedIndicatorText: {
@@ -557,6 +911,62 @@ const styles = StyleSheet.create({
   },
   deliveryButtonTextSelected: {
     color: '#fff',
+  },
+  // Add New Address Button Styles
+  addNewAddressBtn: {
+    backgroundColor: '#000',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 4,
+    alignItems: 'center',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  addNewAddressBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  // Loading and error states
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  loadingText: {
+    marginLeft: 10,
+    fontSize: 16,
+    color: '#666',
+  },
+  errorContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#ff4444',
+    marginBottom: 10,
+  },
+  retryButton: {
+    backgroundColor: '#000',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 4,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#999',
   },
 });
 

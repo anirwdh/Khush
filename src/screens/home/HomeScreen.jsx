@@ -1,23 +1,24 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Platform, Dimensions, Pressable, Alert, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useDispatch, useSelector } from 'react-redux';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Video from 'react-native-video';
 import MenuIcon from '../../assets/Icons/MenuIcon';
 import SearchIcon from '../../assets/Icons/SearchIcon';
 import LogoIcon from '../../assets/Icons/logoicon.jsx';
-import LoginBg from '../../assets/Icons/LoginBg.jsx';
 import MainLogo from '../../assets/Icons/MainLogo.jsx';
 import Meeting from '../../assets/Icons/Meeting.jsx';
 import Delievry from '../../assets/Icons/Delievry.jsx';
 import Return from '../../assets/Icons/Return.jsx';
 import Assistance from '../../assets/Icons/Assistance.jsx';
-import BrandSection from '../../assets/Icons/BrandSection';
 import BottomTabBar from '../../Components/BottomTabBar.jsx';
 import JustForYouSection from '../../Components/JustForYouSection.jsx';
 import LocationIcon from '../../assets/Icons/LocationIcon.jsx';
 import { getFontFamily } from '../../utils/fontLoader';
+import { featuresService } from '../../services/featuresService';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import { clearLocationError } from '../../redux/slices/locationSlice';
 import { getAllSections } from '../../config/sections.config';
@@ -25,48 +26,33 @@ import SectionRenderer from '../../Components/DynamicSections/SectionRenderer';
 import { useFocusEffect } from '@react-navigation/native';
 import { getFeaturedVideos } from '../../services/featuredVideosService';
 import { getCategories } from '../../services/subcategoryService';
+import { bannerService } from '../../services/bannerService';
+import { userBootstrap } from '../../services/userBootstrap';
 
 const { width, height } = Dimensions.get('window');
-
-// Memoized Brand Section Component
-const BrandSectionComponent = React.memo(() => {
-  return (
-    <View style={styles.brandSection}>
-      <BrandSection width={width} height={157} />
-    </View>
-  );
-});
 
 // Memoized Collection Section Component
 const CollectionSection = React.memo(() => {
   const navigation = useNavigation();
-  const [collections, setCollections] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [loadedImages, setLoadedImages] = useState({});
 
-  // Fetch collections from API
-  useEffect(() => {
-    const fetchCollections = async () => {
-      try {
-        setLoading(true);
-        const response = await getCategories({ page: 1, limit: 10 });
-        if (response && response.categories) {
-          const transformedData = response.categories.map(category => ({
-            id: category._id,
-            title: category.name.toUpperCase(),
-            image: { uri: category.imageUrl },
-          }));
-          setCollections(transformedData);
-        }
-      } catch (error) {
-        console.error('Failed to fetch collections:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Fetch collections using React Query
+  const { data: collectionsData, isLoading: loading } = useQuery({
+    queryKey: ['collections'],
+    queryFn: () => getCategories({ page: 1, limit: 10 }),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    cacheTime: 15 * 60 * 1000,
+  });
 
-    fetchCollections();
-  }, []);
+  // Transform collections data
+  const collections = useMemo(() => {
+    if (!collectionsData?.categories) return [];
+    return collectionsData.categories.map(category => ({
+      id: category._id,
+      title: category.name.toUpperCase(),
+      image: { uri: category.imageUrl },
+    }));
+  }, [collectionsData]);
 
   // Handle image load
   const handleImageLoad = useCallback((itemId) => {
@@ -89,6 +75,8 @@ const CollectionSection = React.memo(() => {
             source={item.image} 
             style={styles.collectionImage}
             onLoad={() => handleImageLoad(item.id)}
+            progressiveRenderingEnabled={true}
+            fadeDuration={300}
           />
         </View>
 
@@ -106,16 +94,29 @@ const CollectionSection = React.memo(() => {
     );
   }, [navigation, loadedImages, handleImageLoad]);
 
-  // Show loading state
-  if (loading) {
-    return (
-      <View style={styles.collectionSection}>
-        <Text style={styles.sectionTitle}>COLLECTIONS</Text>
-        <View style={styles.collectionLoadingContainer}>
-          <ActivityIndicator size="large" color="#000" />
-        </View>
+  // Skeleton loading component for Collection Section
+  const CollectionSkeleton = useMemo(() => (
+    <View style={styles.collectionSection}>
+      <Text style={styles.sectionTitle}>COLLECTIONS</Text>
+      <View style={styles.collectionList}>
+        {[1, 2, 3].map((item) => (
+          <View key={item} style={styles.collectionItem}>
+            <View style={styles.collectionImageWrapper}>
+              <View style={styles.collectionSkeletonImage} />
+            </View>
+            <View style={[styles.collectionOverlay, item % 2 === 1 ? styles.textRight : styles.textLeft]}>
+              <View style={styles.collectionSkeletonTitle} />
+              <View style={styles.collectionSkeletonSubtitle} />
+            </View>
+          </View>
+        ))}
       </View>
-    );
+    </View>
+  ), []);
+
+  // Show skeleton loading state
+  if (loading) {
+    return CollectionSkeleton;
   }
 
   return (
@@ -133,39 +134,65 @@ const CollectionSection = React.memo(() => {
           offset: (height * 0.28 + 16) * index,
           index,
         })}
+        windowSize={10}
+        initialNumToRender={3}
+        maxToRenderPerBatch={3}
+        removeClippedSubviews={Platform.OS === 'android'}
+        updateCellsBatchingPeriod={50}
       />
     </View>
   );
 });
 
 // Memoized Services Section Component
-const ServicesSection = React.memo(() => {
-  const services = [
-    {
-      id: '1',
-      icon: Meeting,
-      title: 'VIRTUAL APPOINTMENT',
-      desc: 'Book your personal styling session with our head stylist. Set up a one-on-one appointment for fashion advice.',
-    },
-    {
-      id: '2',
-      icon: Delievry,
-      title: 'GLOBAL SHIPPING',
-      desc: 'We offer fast and reliable free shipping options within India, ensuring timely delivery.',
-    },
-    {
-      id: '3',
-      icon: Return,
-      title: 'RISK-FREE PURCHASE',
-      desc: 'Enjoy 4 days to exchange or return your product for a seamless shopping experience.',
-    },
-    {
-      id: '4',
-      icon: Assistance,
-      title: 'ONLINE ASSISTANCE',
-      desc: 'Our friendly customer support team is available to assist you with any queries.',
-    },
-  ];
+const ServicesSection = React.memo(({ featuresData, featuresLoading }) => {
+  if (featuresLoading) {
+    return (
+      <View style={styles.servicesSection}>
+        <ActivityIndicator size="small" color="#000" />
+      </View>
+    );
+  }
+
+  const features = featuresData?.success ? (featuresData?.data?.data?.features || []) : [];
+
+  const iconMap = {
+    'VIRTUAL APPOINTMENT': Meeting,
+    'GLOBAL SHIPPING': Delievry,
+    'Global Shipping': Delievry,
+    'Global Shippingss': Delievry,
+    'RISK-FREE PURCHASE': Return,
+    'ONLINE ASSISTANCE': Assistance,
+  };
+
+  const renderServiceItem = useCallback(({ item }) => {
+    // Defensive check to prevent undefined errors
+    if (!item || !item.featureName) {
+      return null;
+    }
+    
+    const IconComponent = iconMap[item.featureName] || Assistance;
+
+    return (
+      <View key={item._id || Math.random()} style={styles.serviceItem}>
+        <View style={styles.iconContainer}>
+          {item.icon?.imageUrl ? (
+            <Image 
+              source={{ uri: item.icon.imageUrl }} 
+              style={styles.serviceIcon} 
+              resizeMode="contain"
+            />
+          ) : (
+            <IconComponent width={48} height={48} />
+          )}
+        </View>
+        <View style={styles.serviceContent}>
+          <Text style={styles.serviceTitle}>{item.featureName}</Text>
+          <Text style={styles.serviceDesc}>{item.description || ''}</Text>
+        </View>
+      </View>
+    );
+  }, [iconMap]);
 
   return (
     <View style={styles.servicesSection}>
@@ -177,13 +204,11 @@ const ServicesSection = React.memo(() => {
       </View>
 
       {/* Services */}
-      {services.map(item => (
-        <View key={item.id} style={styles.serviceItem}>
-          <item.icon width={36} height={36} />
-          <Text style={styles.serviceTitle}>{item.title}</Text>
-          <Text style={styles.serviceDesc}>{item.desc}</Text>
-        </View>
-      ))}
+      <View style={styles.servicesList}>
+        {features && Array.isArray(features) && features
+          .filter(feature => feature && feature.featureName)
+          .map((item) => React.cloneElement(renderServiceItem({ item }), { key: item._id || item.featureName }))}
+      </View>
     </View>
   );
 });
@@ -213,12 +238,55 @@ const VideoSection = React.memo(({ isVisible, videoData }) => {
 });
 
 // Memoized Hero Banner Component
-const HeroBanner = React.memo(({ bannerImages, currentBannerIndex, scrollViewRef, handleBannerScroll, navigation }) => {
+const HeroBanner = React.memo(({ bannerData, currentBannerIndex, scrollViewRef, handleBannerScroll, navigation, isLoading }) => {
   const setFlatListRef = useCallback((ref) => {
     if (ref && scrollViewRef) {
       scrollViewRef.current = ref;
     }
   }, [scrollViewRef]);
+
+  // Transform banner data for display
+  const bannerImages = useMemo(() => {
+    // Handle the wrapped response structure from createApiSuccessResponse
+    const actualData = bannerData?.data?.data || bannerData?.data;
+    
+    if (!bannerData?.success || !actualData?.banners) {
+      return [];
+    }
+    return actualData.banners.map(banner => ({
+      id: banner._id,
+      uri: banner.mobileBanner?.url,
+      title: banner.title,
+      text: banner.text,
+      navigateTo: banner.navigation?.navigate
+    }));
+  }, [bannerData]);
+
+  // Handle banner press
+  const handleBannerPress = useCallback((banner) => {
+    if (banner.navigateTo) {
+      navigation.navigate('CollectionListingScreen', { categoryId: banner.navigateTo });
+    }
+  }, [navigation]);
+
+  // Skeleton loading component for Hero Banner
+  const HeroBannerSkeleton = useMemo(() => (
+    <View style={styles.bannerContainer}>
+      <View style={styles.bannerSkeleton} />
+      <View style={styles.exploreButtonOverlay}>
+        <View style={styles.exploreButtonSkeleton} />
+      </View>
+      <View style={styles.indicatorContainer}>
+        {[1, 2, 3].map((index) => (
+          <View key={index} style={styles.indicatorSkeleton} />
+        ))}
+      </View>
+    </View>
+  ), []);
+
+  if (isLoading || !bannerData || bannerImages.length === 0) {
+    return HeroBannerSkeleton;
+  }
   
   return (
     <View style={styles.bannerContainer}>
@@ -229,20 +297,29 @@ const HeroBanner = React.memo(({ bannerImages, currentBannerIndex, scrollViewRef
         showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={handleBannerScroll}
         data={bannerImages}
-        keyExtractor={(item, index) => `banner-${index}`}
+        keyExtractor={(item) => item.id}
         renderItem={({ item, index }) => (
-          <View style={styles.bannerSlide}>
+          <TouchableOpacity 
+            style={styles.bannerSlide}
+            onPress={() => handleBannerPress(item)}
+            activeOpacity={0.9}
+          >
             <Image 
-              source={item} 
+              source={{ uri: item.uri }} 
               style={styles.bannerImage}
               resizeMode="cover"
+              progressiveRenderingEnabled={true}
+              fadeDuration={300}
             />
-          </View>
+          </TouchableOpacity>
         )}
         windowSize={3}
         initialNumToRender={1}
         maxToRenderPerBatch={2}
         removeClippedSubviews={Platform.OS === 'android'}
+        updateCellsBatchingPeriod={50}
+        scrollEventThrottle={16}
+        decelerationRate="fast"
       />
       
       <View style={styles.exploreButtonOverlay}>
@@ -270,15 +347,24 @@ const HeroBanner = React.memo(({ bannerImages, currentBannerIndex, scrollViewRef
   );
 });
 
-const HomeScreen = () => {
+const HomeScreen = ({ route }) => {
   const navigation = useNavigation();
   const dispatch = useDispatch();
-  const [activeTab, setActiveTab] = useState(1);
+  const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState(route?.params?.activeTab || 1); // Home tab is active
+  
+  // Debug: Log when activeTab is set from route params
+  useEffect(() => {
+    if (route?.params?.activeTab) {
+      console.log('HomeScreen: Received activeTab from route:', route.params.activeTab);
+    }
+  }, [route?.params?.activeTab]);
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
   const [videoVisible, setVideoVisible] = useState(false);
-  const [featuredVideos, setFeaturedVideos] = useState([]);
-  const [videosLoading, setVideosLoading] = useState(true);
   const scrollViewRef = useRef(null);
+  const mainListRef = useRef(null);
+  const scrollPositionRef = useRef(0);
+  const isRestoringScrollRef = useRef(false);
   const insets = useSafeAreaInsets();
   
   // Geolocation hook
@@ -292,25 +378,34 @@ const HomeScreen = () => {
     requestLocationPermission,
   } = useGeolocation();
 
+  // Fetch features using React Query
+  const { data: featuresData, isLoading: featuresLoading } = useQuery({
+    queryKey: ['features'],
+    queryFn: () => featuresService.getAllFeatures(1, 6),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
+
   // Get location state from Redux
   const location = useSelector((state) => state.location);
+  
+  // Get auth state from Redux
+  const auth = useSelector((state) => state.auth);
 
-  // Fetch featured videos
-  useEffect(() => {
-    const fetchVideos = async () => {
-      try {
-        setVideosLoading(true);
-        const videos = await getFeaturedVideos({ page: 'home' });
-        setFeaturedVideos(videos);
-      } catch (error) {
-        console.error('Error fetching featured videos:', error);
-      } finally {
-        setVideosLoading(false);
-      }
-    };
+  // Fetch featured videos using React Query
+  const { data: featuredVideos = [], isLoading: videosLoading } = useQuery({
+    queryKey: ['featuredVideos', 'bottom'],
+    queryFn: () => getFeaturedVideos({ page: 'bottom' }),
+    staleTime: 10 * 60 * 1000, // 10 minutes
+    cacheTime: 15 * 60 * 1000,
+  });
 
-    fetchVideos();
-  }, []);
+  // Fetch banners using React Query
+  const { data: bannerData, isLoading: bannerLoading } = useQuery({
+    queryKey: ['banners'],
+    queryFn: () => bannerService.getAllBanners(1, 10, true),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    cacheTime: 10 * 60 * 1000,
+  });
 
   // Request location on first mount if not already available
   useEffect(() => {
@@ -322,6 +417,34 @@ const HomeScreen = () => {
       }
     }
   }, [location.latitude, location.longitude, locationLoading, location.lastUpdated, requestLocationPermission]);
+
+  // Bootstrap user data when location is available and user is authenticated
+  useEffect(() => {
+    const bootstrapUserData = async () => {
+      // Only bootstrap if user is authenticated and location is available
+      if (auth.isAuthenticated && (location.pinCode || pincode)) {
+        console.log('🏠 HomeScreen: User authenticated and location available, bootstrapping user data');
+        
+        const locationData = {
+          pinCode: pincode || location.pinCode,
+          city: location.city,
+          state: location.state,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          formattedAddress: location.formattedAddress
+        };
+
+        try {
+          const bootstrapResult = await userBootstrap.bootstrapUser(locationData);
+          console.log('✅ HomeScreen: User bootstrap completed:', bootstrapResult);
+        } catch (error) {
+          console.error('❌ HomeScreen: User bootstrap failed:', error);
+        }
+      }
+    };
+
+    bootstrapUserData();
+  }, [auth.isAuthenticated, location.pinCode, pincode, location.city, location.state, location.latitude, location.longitude, location.formattedAddress]);
 
   // Handle location errors
   useEffect(() => {
@@ -342,11 +465,132 @@ const HomeScreen = () => {
     }
   }, [locationError, dispatch, requestLocationPermission]);
 
-  // Control video visibility based on screen focus
+  // Optimized scroll position management - only save during navigation, not on app refresh
+  const saveScrollPosition = useCallback(async (position) => {
+    try {
+      // Only save if we're not restoring and position is meaningful
+      // Also ensure we're not in the initial app load phase
+      if (!isRestoringScrollRef.current && position > 50) {
+        const hasMountedBefore = await AsyncStorage.getItem('homeScreenMounted');
+        // Only save position if we're past the initial mount phase (navigation scenario)
+        if (hasMountedBefore === 'true') {
+          scrollPositionRef.current = position;
+          await AsyncStorage.setItem('homeScreenScrollPosition', position.toString());
+        }
+      }
+    } catch (error) {
+      console.log('Error saving scroll position:', error);
+    }
+  }, []);
+
+  // Load scroll position
+  const loadScrollPosition = useCallback(async () => {
+    try {
+      const savedPosition = await AsyncStorage.getItem('homeScreenScrollPosition');
+      if (savedPosition !== null) {
+        const position = parseFloat(savedPosition);
+        // Only restore if position is meaningful
+        if (position > 100) {
+          return position;
+        }
+      }
+    } catch (error) {
+      console.log('Error loading scroll position:', error);
+    }
+    return 0;
+  }, []);
+
+  // Clear scroll position on app refresh detection - ALWAYS start from top
+  useEffect(() => {
+    const detectAppRefresh = async () => {
+      try {
+        // Always clear scroll position on mount to ensure app starts from top
+        console.log('🏠 HomeScreen: Clearing scroll position for fresh start');
+        await AsyncStorage.removeItem('homeScreenScrollPosition');
+        await AsyncStorage.removeItem('homeScreenMounted');
+        scrollPositionRef.current = 0;
+        isRestoringScrollRef.current = false;
+        
+        // Ensure we start at top
+        if (mainListRef.current) {
+          mainListRef.current.scrollToOffset({ offset: 0, animated: false });
+        }
+      } catch (error) {
+        console.log('Error handling app refresh:', error);
+      }
+    };
+
+    detectAppRefresh();
+  }, []);
+
+  // DISABLED scroll restoration - always start from top on app refresh
+  // Only restore scroll position when navigating back from other screens
+  useEffect(() => {
+    const restoreScrollPosition = async () => {
+      // Skip restoration on app refresh - always start from top
+      // Only restore if we have a meaningful position AND we're not on app refresh
+      const position = await loadScrollPosition();
+      if (position > 100 && mainListRef.current && !isRestoringScrollRef.current) {
+        // Only restore if this is a navigation back, not app refresh
+        // Check if we have been mounted before (navigation scenario)
+        const hasMountedBefore = await AsyncStorage.getItem('homeScreenMounted');
+        if (hasMountedBefore === 'true') {
+          isRestoringScrollRef.current = true;
+          requestAnimationFrame(() => {
+            if (mainListRef.current) {
+              mainListRef.current.scrollToOffset({ offset: position, animated: false });
+              setTimeout(() => {
+                isRestoringScrollRef.current = false;
+              }, 100);
+            }
+          });
+        }
+      }
+    };
+
+    // Mark as mounted after a delay to distinguish from app refresh
+    setTimeout(() => {
+      AsyncStorage.setItem('homeScreenMounted', 'true');
+      restoreScrollPosition();
+    }, 500);
+  }, [loadScrollPosition]);
+
+  // Throttled scroll handler
+  const scrollTimeoutRef = useRef(null);
+  const handleScroll = useCallback((event) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    
+    // Clear existing timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    
+    // Throttle scroll position saving
+    scrollTimeoutRef.current = setTimeout(() => {
+      saveScrollPosition(offsetY);
+    }, 100);
+  }, [saveScrollPosition]);
+
+  // Cleanup scroll timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Control video visibility and scroll behavior based on screen focus
   useFocusEffect(
     useCallback(() => {
       // Screen is focused - video should be visible
       setVideoVisible(true);
+      
+      // Ensure smooth scroll to top when screen gains focus (tab switching)
+      if (mainListRef.current && scrollPositionRef.current === 0) {
+        mainListRef.current.scrollToOffset({ offset: 0, animated: false });
+      }
+      
       return () => {
         // Screen is unfocused - pause video
         setVideoVisible(false);
@@ -354,12 +598,15 @@ const HomeScreen = () => {
     }, [])
   );
 
-  // Banner images array
-  const bannerImages = [
-    require('../../assets/Images/image.png'),
-    require('../../assets/Images/Image2.png'),
-    require('../../assets/Images/Image3.png'),
-  ];
+  // Banner images array from API
+  const bannerImages = useMemo(() => {
+    // Handle the wrapped response structure from createApiSuccessResponse
+    const actualData = bannerData?.data?.data || bannerData?.data;
+    if (!bannerData?.success || !actualData?.banners) {
+      return [];
+    }
+    return actualData.banners;
+  }, [bannerData]);
 
   // Auto-scroll functionality
   useEffect(() => {
@@ -379,31 +626,122 @@ const HomeScreen = () => {
     return () => clearInterval(interval);
   }, [bannerImages.length]);
 
-  const handleTabPress = (tabId) => {
-    setActiveTab(tabId);
-    // Navigation is now handled in BottomTabBar component
-  };
+  const handleTabPress = useCallback((tabId) => {
+    // Clear scroll position when switching tabs to prevent jittering
+    if (tabId !== activeTab) {
+      // Clear all scroll state
+      scrollPositionRef.current = 0;
+      isRestoringScrollRef.current = false;
+      
+      // Clear any pending scroll timeouts
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      
+      // Clear saved position to start fresh
+      AsyncStorage.removeItem('homeScreenScrollPosition');
+      
+      // Scroll to top smoothly when switching tabs
+      if (mainListRef.current) {
+        mainListRef.current.scrollToOffset({ offset: 0, animated: false });
+      }
+      
+      setActiveTab(tabId);
+    }
+  }, [activeTab]);
 
-  const handleExploreCollection = () => {
-    navigation.navigate('CollectionListing', { collectionName: "All" });
-  };
+  // Fetch dynamic sections using React Query
+  const { data: dynamicSections = [], isLoading: sectionsLoading } = useQuery({
+    queryKey: ['sections', pincode || location.pinCode || '201309'],
+    queryFn: () => getAllSections(pincode || location.pinCode || '201309'),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    cacheTime: 10 * 60 * 1000,
+  });
 
-  // Memoized sections data using dynamic configuration
+  // Memoized sections data
   const sectionsData = useMemo(() => {
-    const dynamicSections = getAllSections();
-    return [
+    const baseSections = [
       { type: 'hero', id: 'hero' },
-      ...dynamicSections.map(section => ({ type: 'dynamic', id: section.id, data: section })),
-      { type: 'brand', id: 'brand' },
-      { type: 'collection', id: 'collection' },
     ];
-  }, []);
+    
+    if (dynamicSections.length > 0) {
+      baseSections.push(
+        ...dynamicSections.map(section => ({ type: 'dynamic', id: section.id, data: section }))
+      );
+    }
+    
+    baseSections.push(
+      { type: 'brand', id: 'brand' },
+      { type: 'collection', id: 'collection' }
+    );
+    
+    return baseSections;
+  }, [dynamicSections]);
 
   // Optimized scroll handler
   const handleBannerScroll = useCallback((event) => {
     const contentOffset = event.nativeEvent.contentOffset;
     const currentIndex = Math.round(contentOffset.x / width);
     setCurrentBannerIndex(currentIndex);
+  }, []);
+
+  // Memoized render item for main FlatList
+  const renderSectionItem = useCallback(({ item }) => {
+    if (item.type === 'hero') {
+      return (
+        <HeroBanner
+          bannerData={bannerData}
+          currentBannerIndex={currentBannerIndex}
+          scrollViewRef={scrollViewRef}
+          handleBannerScroll={handleBannerScroll}
+          navigation={navigation}
+          isLoading={bannerLoading}
+        />
+      );
+    } else if (item.type === 'dynamic') {
+      return <SectionRenderer section={item.data} />;
+    } else if (item.type === 'collection') {
+      return <CollectionSection />;
+    }
+    return null;
+  }, [bannerData, currentBannerIndex, scrollViewRef, handleBannerScroll, navigation, bannerLoading]);
+
+  // Memoized footer component
+  const ListFooterComponent = useMemo(() => (
+    <>
+      <VideoSection 
+        isVisible={videoVisible} 
+        videoData={featuredVideos[0]} 
+      />
+      <JustForYouSection />
+      <ServicesSection featuresData={featuresData} featuresLoading={featuresLoading} />
+    </>
+  ), [videoVisible, featuredVideos, featuresData, featuresLoading]);
+
+  // Memoized refresh control
+  const refreshControl = useMemo(() => null, []);
+
+  // Get item layout for better performance
+  const getItemLayout = useCallback((data, index) => {
+    const item = data[index];
+    let itemHeight = height * 0.8; // Default estimate
+    
+    // More accurate height estimates based on section type
+    if (item?.type === 'hero') {
+      itemHeight = height * 0.75;
+    } else if (item?.type === 'dynamic') {
+      itemHeight = height * 0.6; // Estimate for dynamic sections
+    } else if (item?.type === 'brand') {
+      itemHeight = height * 0.2;
+    } else if (item?.type === 'collection') {
+      itemHeight = height * 0.4;
+    }
+    
+    return {
+      length: itemHeight,
+      offset: itemHeight * index,
+      index,
+    };
   }, []);
 
   return (
@@ -463,44 +801,31 @@ const HomeScreen = () => {
 
         {/* Optimized FlatList Content with Sections */}
         <FlatList
+          ref={(ref) => {
+            mainListRef.current = ref;
+          }}
           style={styles.scrollView}
           showsVerticalScrollIndicator={false}
           data={sectionsData}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => {
-            if (item.type === 'hero') {
-              return (
-                <HeroBanner
-                  bannerImages={bannerImages}
-                  currentBannerIndex={currentBannerIndex}
-                  scrollViewRef={scrollViewRef}
-                  handleBannerScroll={handleBannerScroll}
-                  navigation={navigation}
-                />
-              );
-            } else if (item.type === 'dynamic') {
-              return <SectionRenderer section={item.data} />;
-            } else if (item.type === 'brand') {
-              return <BrandSectionComponent />;
-            } else if (item.type === 'collection') {
-              return <CollectionSection />;
-            }
-            return null;
-          }}
-          windowSize={5}
+          renderItem={renderSectionItem}
+          getItemLayout={getItemLayout}
+          windowSize={21}
           removeClippedSubviews={Platform.OS === 'android'}
-          maxToRenderPerBatch={6}
+          maxToRenderPerBatch={10}
           initialNumToRender={2}
-          ListFooterComponent={
-            <>
-              <VideoSection 
-                isVisible={videoVisible} 
-                videoData={featuredVideos[0]} 
-              />
-              <JustForYouSection />
-              <ServicesSection />
-            </>
-          }
+          updateCellsBatchingPeriod={25}
+          decelerationRate="normal"
+          scrollEventThrottle={32}
+          onScroll={handleScroll}
+          ListFooterComponent={ListFooterComponent}
+          refreshControl={refreshControl}
+          maintainVisibleContentPosition={{
+            minIndexForVisible: 0,
+            autoscrollToTopThreshold: 1000,
+          }}
+          persistentScrollbar={false}
+          progressViewOffset={100}
         />
       </View>
 
@@ -633,6 +958,9 @@ const styles = StyleSheet.create({
     color: '#000',
     fontFamily: Platform.OS === 'ios' ? 'TenorSans' : 'TenorSans-Regular',
     letterSpacing: 4,
+    textAlign: 'center',
+    alignSelf: 'center',
+    marginBottom: height * 0.04,
   },
   arrowContainer: {
     top:-13,
@@ -732,6 +1060,7 @@ const styles = StyleSheet.create({
     marginVertical: height * 0.01,
   },
   collectionSection: {
+    
     paddingHorizontal: width * 0.05,
     paddingVertical: height * 0.03,
     backgroundColor: '#fff',
@@ -757,10 +1086,24 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#f2f2f2',
   },
-  collectionLoadingContainer: {
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center',
+  collectionSkeletonImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#f0f0f0',
+    borderRadius: 4,
+  },
+  collectionSkeletonTitle: {
+    width: width * 0.3,
+    height: 34,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 4,
+    marginBottom: 4,
+  },
+  collectionSkeletonSubtitle: {
+    width: width * 0.2,
+    height: 14,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 2,
   },
   collectionList: {
     paddingBottom: 20,
@@ -804,11 +1147,32 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   servicesSection: {
-  backgroundColor: '#fff',
-  paddingHorizontal: width * 0.12,
-  paddingVertical: height * 0.08,
-  shouldRasterizeIOS: true,
-},
+    backgroundColor: '#fff',
+    paddingHorizontal: width * 0.12,
+    paddingVertical: height * 0.08,
+    shouldRasterizeIOS: true,
+  },
+
+  servicesList: {
+    alignItems: 'center',
+  },
+
+  iconContainer: {
+    width: 60,
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+
+  serviceIcon: {
+    width: 48,
+    height: 48,
+  },
+
+  serviceContent: {
+    alignItems: 'center',
+  },
 
 brandBlock: {
   alignItems: 'center',
@@ -853,6 +1217,52 @@ serviceTitle: {
     color: '#666',
     fontFamily: 'Helvetica', 
   },
+  loadingContainer: {
+    height: 100,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  // Hero Banner Skeleton styles
+  bannerSkeleton: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#f0f0f0',
+  },
+  exploreButtonSkeleton: {
+    width: width * 0.5,
+    height: height * 0.05,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 25,
+  },
+  indicatorSkeleton: {
+    width: 8,
+    height: 8,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 4,
+    marginHorizontal: 4,
+  },
+  // // Banner text overlay styles
+  // bannerTextOverlay: {
+  //   position: 'absolute',
+  //   bottom: 30,
+  //   left: 40,
+  //   alignItems: 'flex-start',
+  // },
+  // bannerTitleTop: {
+  //   fontWeight: '700',
+  //   fontSize: 34,
+  //   color: '#fff',
+  //   fontStyle: 'italic',
+  //   fontFamily: Platform.OS === 'ios' ?'TenorSans' : 'TenorSans-Regular',
+  // },
+  // bannerTitleBottom: {
+  //   fontSize: 14,
+  //   color: '#fff',
+  //   letterSpacing: 3,
+  //   marginTop: -4,
+  //   fontFamily: Platform.OS === 'ios' ? 'Inter' : 'TenorSans-Regular',
+  // },
 });
 
 export default HomeScreen;

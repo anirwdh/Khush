@@ -65,11 +65,24 @@ const OptionsScreen = () => {
   };
 
   // Memoized render item for subcategories
-  const SubcategoryItem = React.memo(({ item }) => (
-    <TouchableOpacity style={styles.listItem}>
-      <Text style={styles.listText}>{item.name}</Text>
-    </TouchableOpacity>
-  ));
+  const SubcategoryItem = React.memo(({ item }) => {
+    // Find the category name for this subcategory
+    const category = categories.find(cat => cat._id === item.categoryId);
+    const categoryName = category?.name || 'Collection';
+    
+    return (
+      <TouchableOpacity 
+        style={styles.listItem}
+        onPress={() => navigation.navigate('CollectionListingScreen', {
+          collectionName: categoryName,
+          categoryId: item.categoryId,
+          targetSubcategoryId: item._id
+        })}
+      >
+        <Text style={styles.listText}>{item.name}</Text>
+      </TouchableOpacity>
+    );
+  });
 
   const renderSubcategoryItem = ({ item }) => <SubcategoryItem item={item} />;
 
